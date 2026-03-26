@@ -3,11 +3,21 @@ import cors from "@fastify/cors";
 import { Server } from "socket.io";
 import type { ServerToClientEvents, ClientToServerEvents } from "@hideseek/shared";
 import { config } from "./config";
+import { testConnection, pool } from "./db/client";
 
 async function main() {
   const app = Fastify({ logger: true });
 
-  await app.register(cors, { origin: true });
+  // Verify DB connection before starting
+  try {
+    await testConnection();
+    app.log.info("Database connection verified");
+  } catch (err) {
+    app.log.error("Failed to connect to database");
+    throw err;
+  }
+
+  await app.register(cors, { origin: config.corsOrigins });
 
   // Health check
   app.get("/health", async () => ({ status: "ok" }));
@@ -17,7 +27,7 @@ async function main() {
 
   // Socket.IO on top of Fastify's server
   const io = new Server<ClientToServerEvents, ServerToClientEvents>(app.server, {
-    cors: { origin: "*" },
+    cors: { origin: config.corsOrigins },
   });
 
   io.on("connection", (socket) => {
@@ -29,6 +39,16 @@ async function main() {
 
     // TODO: register game, location, chat, curse, cards handlers
   });
+
+  // Graceful shutdown
+  const shutdown = async () => {
+    app.log.info("Shutting down...");
+    await app.close();
+    await pool.end();
+    process.exit(0);
+  };
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 
   app.log.info(`Server running on http://${config.host}:${config.port}`);
 }

@@ -39,6 +39,11 @@ jobs:
       - name: Build shared package
         run: npx -y turbo run build --filter=@hideseek/shared
 
+      - name: Run database migrations
+        run: npx -y turbo run db:migrate --filter=@hideseek/server
+        env:
+          DATABASE_URL: postgresql://hideseek:hideseek@localhost:5432/hideseek
+
       - name: Typecheck
         run: npx -y turbo run typecheck
 

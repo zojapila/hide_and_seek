@@ -9,8 +9,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "echo 'no linter configured yet'",
     "test": "echo 'no tests yet'",
-    "migrate": "node dist/db/migrate.js",
-    "seed": "node dist/db/seed.js"
+    "migrate": "tsx src/db/migrate.ts",
+    "db:migrate": "tsx src/db/migrate.ts"
   },
   "dependencies": {
     "@hideseek/shared": "*",
