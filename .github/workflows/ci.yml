@@ -37,16 +37,16 @@ jobs:
       - run: npm ci
 
       - name: Build shared package
-        run: npx turbo run build --filter=@hideseek/shared
+        run: npx -y turbo run build --filter=@hideseek/shared
 
       - name: Typecheck
-        run: npx turbo run typecheck
+        run: npx -y turbo run typecheck
 
       - name: Lint
-        run: npx turbo run lint
+        run: npx eslint .
 
       - name: Test
-        run: npx turbo run test
+        run: npx -y turbo run test
         env:
           DATABASE_URL: postgresql://hideseek:hideseek@localhost:5432/hideseek
 

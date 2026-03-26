@@ -1,6 +1,7 @@
 {
   "name": "hide-and-seek",
   "private": true,
+  "packageManager": "npm@10.8.2",
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -9,7 +10,9 @@
     "dev:server": "npm run dev -w apps/server",
     "dev:mobile": "npm run dev -w apps/mobile",
     "build": "turbo run build",
-    "lint": "turbo run lint",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "db:migrate": "npm run migrate -w apps/server",

@@ -2,10 +2,7 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { Server } from "socket.io";
 import type { ServerToClientEvents, ClientToServerEvents } from "@hideseek/shared";
-import "dotenv/config";
-
-const PORT = parseInt(process.env.PORT || "3000", 10);
-const HOST = process.env.HOST || "0.0.0.0";
+import { config } from "./config";
 
 async function main() {
   const app = Fastify({ logger: true });
@@ -16,7 +13,7 @@ async function main() {
   app.get("/health", async () => ({ status: "ok" }));
 
   // Start HTTP server
-  await app.listen({ port: PORT, host: HOST });
+  await app.listen({ port: config.port, host: config.host });
 
   // Socket.IO on top of Fastify's server
   const io = new Server<ClientToServerEvents, ServerToClientEvents>(app.server, {
@@ -33,7 +30,7 @@ async function main() {
     // TODO: register game, location, chat, curse, cards handlers
   });
 
-  app.log.info(`Server running on http://${HOST}:${PORT}`);
+  app.log.info(`Server running on http://${config.host}:${config.port}`);
 }
 
 main().catch((err) => {
