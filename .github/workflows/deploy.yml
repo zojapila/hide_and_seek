@@ -1,0 +1,48 @@
+name: Deploy Server
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/server/**'
+      - 'packages/shared/**'
+      - 'docker/**'
+
+jobs:
+  deploy:
+    name: Deploy to home server
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -f docker/Dockerfile.server -t hideseek-server:latest .
+
+      - name: Save image as tarball
+        run: docker save hideseek-server:latest | gzip > hideseek-server.tar.gz
+
+      # Deploy via SSH to home server (Raspberry Pi / Mac mini / etc.)
+      # Wymaga ustawienia secrets: DEPLOY_HOST, DEPLOY_USER, DEPLOY_SSH_KEY
+      - name: Copy to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          source: hideseek-server.tar.gz
+          target: /tmp/
+
+      - name: Deploy on server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            cd /tmp
+            docker load < hideseek-server.tar.gz
+            rm hideseek-server.tar.gz
+            cd ~/hide_and_seek
+            docker compose -f docker/docker-compose.prod.yml up -d --force-recreate server
