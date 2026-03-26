@@ -127,7 +127,7 @@ export interface ServerToClientEvents {
 }
 
 export interface ClientToServerEvents {
-  "game:join": (data: { gameCode: string; playerName: string; role: PlayerRole }) => void;
+  "game:join": (data: { gameCode: string; playerName: string }) => void;
   "game:start": () => void;
   "location:update": (data: { lat: number; lng: number }) => void;
   "chat:message": (data: { type: MessageType; content: string; metadata?: Record<string, unknown> }) => void;

@@ -27,6 +27,16 @@ async function main() {
   // Game routes
   await app.register(gameRoutes);
 
+  // Fastify error handler for validation errors
+  app.setErrorHandler((error, _request, reply) => {
+    const err = error as { statusCode?: number; message?: string };
+    const statusCode = err.statusCode ?? 500;
+    reply.code(statusCode).send({
+      statusCode,
+      message: err.message ?? "Internal Server Error",
+    });
+  });
+
   // Start HTTP server
   await app.listen({ port: config.port, host: config.host });
 

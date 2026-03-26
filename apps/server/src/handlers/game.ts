@@ -17,6 +17,11 @@ export function registerGameHandlers(
   log: FastifyBaseLogger,
 ) {
   socket.on("game:join", async (data) => {
+    if (!data?.gameCode || !data?.playerName) {
+      log.warn(`Socket ${socket.id}: invalid game:join payload`);
+      return;
+    }
+
     const code = data.gameCode.toUpperCase();
 
     // Find game

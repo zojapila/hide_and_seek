@@ -65,7 +65,7 @@ function toPlayer(row: PlayerRow): Player {
 
 const VALID_ROLES: PlayerRole[] = ["hider", "seeker"];
 
-function validateCreateGame(body: unknown): {
+export function validateCreateGame(body: unknown): {
   hideTimeMinutes: number;
   geofenceRadiusM: number;
   gameRadiusM: number;
@@ -75,19 +75,19 @@ function validateCreateGame(body: unknown): {
   const geofenceRadiusM = Number(b.geofenceRadiusM ?? 200);
   const gameRadiusM = Number(b.gameRadiusM ?? 3000);
 
-  if (hideTimeMinutes < 5 || hideTimeMinutes > 120) {
+  if (!Number.isFinite(hideTimeMinutes) || hideTimeMinutes < 5 || hideTimeMinutes > 120) {
     throw { statusCode: 400, message: "hideTimeMinutes must be between 5 and 120" };
   }
-  if (geofenceRadiusM < 50 || geofenceRadiusM > 1000) {
+  if (!Number.isFinite(geofenceRadiusM) || geofenceRadiusM < 50 || geofenceRadiusM > 1000) {
     throw { statusCode: 400, message: "geofenceRadiusM must be between 50 and 1000" };
   }
-  if (gameRadiusM < 500 || gameRadiusM > 10000) {
+  if (!Number.isFinite(gameRadiusM) || gameRadiusM < 500 || gameRadiusM > 10000) {
     throw { statusCode: 400, message: "gameRadiusM must be between 500 and 10000" };
   }
   return { hideTimeMinutes, geofenceRadiusM, gameRadiusM };
 }
 
-function validateJoin(body: unknown): { name: string; role: PlayerRole } {
+export function validateJoin(body: unknown): { name: string; role: PlayerRole } {
   const b = body as Record<string, unknown>;
   const name = String(b.name ?? "").trim();
   const role = String(b.role ?? "") as PlayerRole;

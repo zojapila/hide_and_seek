@@ -48,7 +48,6 @@ export default function LobbyScreen() {
     socket.emit("game:join", {
       gameCode: params.code,
       playerName: params.playerName,
-      role: "seeker", // role already set via REST, this is just for socket room
     });
 
     socket.on("game:player_joined", ({ player }) => {
