@@ -4,6 +4,8 @@ import { Server } from "socket.io";
 import type { ServerToClientEvents, ClientToServerEvents } from "@hideseek/shared";
 import { config } from "./config";
 import { testConnection, pool } from "./db/client";
+import { gameRoutes } from "./routes/games";
+import { registerGameHandlers } from "./handlers/game";
 
 async function main() {
   const app = Fastify({ logger: true });
@@ -22,6 +24,19 @@ async function main() {
   // Health check
   app.get("/health", async () => ({ status: "ok" }));
 
+  // Game routes
+  await app.register(gameRoutes);
+
+  // Fastify error handler for validation errors
+  app.setErrorHandler((error, _request, reply) => {
+    const err = error as { statusCode?: number; message?: string };
+    const statusCode = err.statusCode ?? 500;
+    reply.code(statusCode).send({
+      statusCode,
+      message: err.message ?? "Internal Server Error",
+    });
+  });
+
   // Start HTTP server
   await app.listen({ port: config.port, host: config.host });
 
@@ -33,11 +48,8 @@ async function main() {
   io.on("connection", (socket) => {
     app.log.info(`Socket connected: ${socket.id}`);
 
-    socket.on("disconnect", () => {
-      app.log.info(`Socket disconnected: ${socket.id}`);
-    });
-
-    // TODO: register game, location, chat, curse, cards handlers
+    // Register handlers
+    registerGameHandlers(io, socket, app.log);
   });
 
   // Graceful shutdown

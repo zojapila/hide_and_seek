@@ -112,6 +112,8 @@ export interface Card {
 // ── Socket Events ──
 
 export interface ServerToClientEvents {
+  "game:player_joined": (data: { player: Player }) => void;
+  "game:player_left": (data: { playerId: string }) => void;
   "game:phase_change": (data: { status: GameStatus }) => void;
   "location:seekers": (data: { players: Pick<Player, "id" | "name" | "currentLocation">[] }) => void;
   "location:geofence_warning": (data: { distanceToEdge: number }) => void;
@@ -125,7 +127,7 @@ export interface ServerToClientEvents {
 }
 
 export interface ClientToServerEvents {
-  "game:join": (data: { gameCode: string; playerName: string; role: PlayerRole }) => void;
+  "game:join": (data: { gameCode: string; playerName: string }) => void;
   "game:start": () => void;
   "location:update": (data: { lat: number; lng: number }) => void;
   "chat:message": (data: { type: MessageType; content: string; metadata?: Record<string, unknown> }) => void;
