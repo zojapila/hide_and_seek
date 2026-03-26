@@ -9,6 +9,9 @@ dist/
 web-build/
 expo-env.d.ts
 
+# Local env (contains machine-specific IP)
+.env.local
+
 # Native
 .kotlin/
 *.orig.*
