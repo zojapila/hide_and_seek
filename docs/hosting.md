@@ -1,9 +1,10 @@
-# Hosting & Dystrybucja — Propozycje
+# Hosting & Dystrybucja
 
 ## Kontekst
 - Aplikacja prywatna, ~5-10 osób
-- Musi działać na iOS (i Android)
-- Budżet: $0 (oprócz ewentualnego Apple Developer Program)
+- **iOS:** tylko 1 osoba (Ty, masz Maca)
+- **Android:** reszta graczy
+- Budżet: **$0**
 - Akceptowalny: serwer lokalny, regularne re-deploye
 
 ---
@@ -59,46 +60,57 @@ cloudflared tunnel run --url http://localhost:3000 hideseek
 
 ---
 
-## 2. iOS — dystrybucja aplikacji
+## 2. iOS — dystrybucja (tylko Ty) ✅
 
-### Kluczowy koszt: Apple Developer Program — $99/rok
+Skoro tylko Ty używasz iOS i masz Maca — **nie potrzebujesz płacić Apple'owi ani grosza**.
+Apple pozwala każdemu darmowemu kontu deweloperskiemu instalować aplikacje na własne urządzenie.
+Certyfikat wygasa co 7 dni, ale **AltStore odświeża go automatycznie w tle**.
 
-Niestety **nie da się** dystrybuować natywnej aplikacji na iOS fizycznym osobom za darmo. Eksplorujmy opcje:
+### AltStore + EAS Build (REKOMENDOWANE) ✅
 
-### Opcja A: TestFlight (REKOMENDOWANE) ✅
-- Wymaga Apple Developer Account ($99/rok)
-- Do **10 000** testerów (aż nadto)
-- Aplikacja ważna **90 dni** od uploadu — potem trzeba ponownie zbudować i załadować
-- Build przez **EAS Build** (Expo Application Services) — darmowe ~30 buildów/mies.
+**Jak to działa:**
+1. **AltServer** — mała aplikacja działająca w menu barze Maca. Raz na ~7 dni, gdy iPhone jest w tej samej sieci WiFi, odświeża certyfikat automatycznie (zazwyczaj w nocy, gdy śpisz).
+2. **EAS Build** — buduje plik `.ipa` w chmurze za darmo. Dostajesz gotowy plik do zainstalowania.
+3. **AltStore** na iPhonie — przyjmuje `.ipa` i zarządza certyfikatem.
 
-**Workflow:**
+**Setup jednorazowy (krok po kroku):**
+
 ```
-push do main → GitHub Actions → EAS Build (iOS) → upload do TestFlight → zaproszenie testerów
+Krok 1 — Zainstaluj AltServer na Macu
+  → Pobierz ze strony altstore.io
+  → Uruchom, pojawi się ikona w menu barze
+
+Krok 2 — Zainstaluj AltStore na iPhonie
+  → Podłącz iPhone kablem USB do Maca
+  → Kliknij ikonę AltServer w menu barze → "Install AltStore" → wybierz swój iPhone
+  → Na iPhonie: Ustawienia → Ogólne → Zarządzanie urządzeniem → zaufaj certyfikatowi
+
+Krok 3 — Zaloguj się w AltStore
+  → Otwórz AltStore na iPhonie
+  → Zaloguj się swoim Apple ID (tym samym co używasz w App Store)
+  → To jest darmowe konto — nie potrzebujesz Apple Developer Program
+
+Krok 4 — Zainstaluj aplikację
+  → Pobierz plik .ipa zbudowany przez EAS
+  → Wyślij go na iPhone (AirDrop, iCloud Drive, cokolwiek)
+  → Otwórz plik → "Open in AltStore" → instaluje się
+
+Krok 5 — Auto-odświeżanie
+  → AltServer na Macu + iPhone w tej samej sieci WiFi
+  → AltStore odświeża certyfikat sam, bez Twojego udziału
 ```
 
-Regularne re-deploye co ~2-3 miesiące = zero problemu.
+**Kiedy musisz ręcznie coś zrobić:**
+- Nowa wersja aplikacji → zbudujesz nowe `.ipa` i zainstalujesz przez AltStore (kilka kliknięć)
+- Mac był wyłączony przez >7 dni i telefon wyszedł z sieci → otwórz AltStore ręcznie i odśwież
 
-### Opcja B: Expo Development Build + Ad Hoc
-- Też wymaga Apple Developer Account ($99/rok)
-- Instalacja bezpośrednio na urządzenia (do 100 urządzeń)
-- Registracja UDID każdego urządzenia
-- Bardziej ręczne niż TestFlight
+**Koszty: $0**
 
-### Opcja C: Expo Go (tylko development)
-- **Darmowe** — nie wymaga Apple Developer Account
-- Ale: nie obsługuje niestandardowych native modules
-- Dobre na etap prototypowania, nie na "produkcję"
-- Każdy musi mieć Expo Go z App Store i skanować QR code
+### Expo Go (tylko na etap developmentu)
 
-### Opcja D: PWA (Progressive Web App)
-- $0 — żadnego Apple Developer Account
-- Działa w przeglądarce Safari, można "dodać do ekranu głównego"
-- **ALE:** ograniczony dostęp do GPS w tle, brak push notyfikacji (od iOS 16.4 jest częściowe wsparcie), brak geofencing
-- **Nie nadaje się** dla tej aplikacji — za dużo zależy od lokalizacji w tle
-
-### Moja rekomendacja:
-> **TestFlight + EAS Build** — jedyny sensowny sposób na iOS.
-> $99/rok to jedyny koszt, który musisz ponieść. Reszta może być za darmo.
+Podczas pisania kodu nie musisz za każdym razem budować pełnego `.ipa`.
+Expo Go to aplikacja z App Store — skanujesz QR kod i aplikacja działa na żywo.
+Ograniczenie: nie obsługuje geolokalizacji w tle ani geofencingu, więc nadaje się tylko do testowania UI.
 
 ---
 
@@ -111,19 +123,19 @@ Dużo prostsza sytuacja:
 
 ---
 
-## 4. Rekomendowany stack hostingowy (minimal cost)
+## 4. Rekomendowany stack — $0 total
 
 | Komponent | Rozwiązanie | Koszt |
 |---|---|---|
 | Backend + DB + MinIO | **Serwer domowy** + Docker Compose | $0 |
 | Dostęp z internetu | **Cloudflare Tunnel** | $0 |
-| Domena | **DuckDNS** lub darmowa subdomena Cloudflare | $0 |
-| iOS build | **EAS Build** (free tier) | $0 |
-| iOS dystrybucja | **TestFlight** | **$99/rok** (Apple Developer) |
+| Domena | **DuckDNS** lub subdomena Cloudflare | $0 |
+| iOS build | **EAS Build** (free tier, ~30 buildów/mies.) | $0 |
+| iOS dystrybucja | **AltStore** (certyfikat auto-odświeżany) | $0 |
 | Android build | **EAS Build** (free tier) | $0 |
-| Android dystrybucja | APK sideloading | $0 |
+| Android dystrybucja | APK sideloading (wyślij plik znajomym) | $0 |
 | CI/CD | **GitHub Actions** (2000 min/mies. free) | $0 |
-| **RAZEM** | | **$99/rok** |
+| **RAZEM** | | **$0** |
 
 ---
 
@@ -138,33 +150,30 @@ Dużo prostsza sytuacja:
                            │                     │ ✅
                     ┌──────┴───────┐      ┌──────┴───────┐
                     │ EAS Build    │      │ Deploy       │
-                    │ (iOS+Android)│      │ backend      │
-                    │ → TestFlight │      │ → home server│
-                    │ → APK        │      │ via SSH      │
-                    └──────────────┘      └──────────────┘
+                    │ iOS → .ipa   │      │ backend      │
+                    │ Android→.apk │      │ → home server│
+                    └──────┬───────┘      │ via SSH      │
+                           │              └──────────────┘
+                    ┌──────┴───────┐
+                    │ Artefakty    │
+                    │ .ipa → Ty   │  (AltStore)
+                    │ .apk → reszta│ (bezpośrednio)
+                    └──────────────┘
 ```
 
-- **Backend deploy:** automatyczny przez SSH do serwera domowego (workflow w `.github/workflows/deploy.yml`)
-- **Mobile build:** ręcznie lub automatycznie przez EAS (`eas build --platform all`)
-- **TestFlight upload:** `eas submit --platform ios` (wymaga Apple credentials)
+- **Backend deploy:** automatyczny przez SSH do serwera domowego  
+- **Android APK:** EAS Build generuje plik → wysyłasz znajomym (WhatsApp, AirDrop, cokolwiek)  
+- **iOS IPA:** EAS Build generuje plik → instalujesz przez AltStore na swoim iPhonie
 
 ---
 
-## 6. Alternatywa "zero kosztów absolutnych"
+## 6. Następne kroki (w kolejności)
 
-Jeśli $99/rok na Apple Developer to za dużo, jest opcja:
-1. **Rozwój i testowanie** — przez Expo Go (darmowe)
-2. **"Produkcja" na iOS** — każdy musi mieć Expo Go app i łączyć się z twoim developmentowym serwerem
-3. **Backend** — serwer domowy + Cloudflare Tunnel
-
-To zadziała, ale z ograniczeniami (brak działania w tle, gorszy UX).
-
----
-
-## Następne kroki
-
-1. [ ] Zdecydować: Apple Developer Account — tak/nie?
-2. [ ] Wybrać serwer domowy (jaki sprzęt masz dostępny?)
-3. [ ] Założyć konto Cloudflare i skonfigurować Tunnel
-4. [ ] Skonfigurować EAS (`eas init` + `eas.json`)
-5. [ ] Postawić docker-compose na serwerze domowym
+1. [ ] Wybrać sprzęt na serwer domowy — co masz dostępne? (stary laptop, Raspberry Pi, Mac mini?)
+2. [ ] Zainstalować AltServer na swoim Macu → altstore.io
+3. [ ] Zainstalować AltStore na iPhonie (15 minut, jednorazowo)
+4. [ ] Założyć konto Cloudflare i skonfigurować Tunnel na serwerze
+5. [ ] Uruchomić `docker compose up` na serwerze (PostgreSQL + MinIO gotowe)
+6. [ ] Skonfigurować EAS (`eas init` w folderze `apps/mobile`)
+7. [ ] Pierwszy build: `eas build --platform ios --profile preview`
+8. [ ] Zainstalować `.ipa` przez AltStore — gotowe!
