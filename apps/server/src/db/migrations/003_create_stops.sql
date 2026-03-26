@@ -12,8 +12,15 @@ CREATE TABLE IF NOT EXISTS stops (
 CREATE INDEX IF NOT EXISTS idx_stops_game_id ON stops (game_id);
 CREATE INDEX IF NOT EXISTS idx_stops_location ON stops USING GIST (location);
 
--- Add FK from players.chosen_stop_id to stops
-ALTER TABLE players
-  ADD CONSTRAINT fk_players_chosen_stop
-  FOREIGN KEY (chosen_stop_id) REFERENCES stops(id)
-  ON DELETE SET NULL;
+-- Add FK from players.chosen_stop_id to stops (idempotent)
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.table_constraints
+    WHERE constraint_name = 'fk_players_chosen_stop'
+  ) THEN
+    ALTER TABLE players
+      ADD CONSTRAINT fk_players_chosen_stop
+      FOREIGN KEY (chosen_stop_id) REFERENCES stops(id)
+      ON DELETE SET NULL;
+  END IF;
+END $$;

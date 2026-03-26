@@ -10,7 +10,7 @@
     "lint": "echo 'no linter configured yet'",
     "test": "echo 'no tests yet'",
     "migrate": "tsx src/db/migrate.ts",
-    "seed": "tsx src/db/seed.ts"
+    "db:migrate": "tsx src/db/migrate.ts"
   },
   "dependencies": {
     "@hideseek/shared": "*",

@@ -3,6 +3,9 @@ import { config } from "../config";
 
 export const pool = new pg.Pool({
   connectionString: config.databaseUrl,
+  max: 20,
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 5_000,
 });
 
 export async function query<T extends pg.QueryResultRow = pg.QueryResultRow>(
