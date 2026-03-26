@@ -1,0 +1,36 @@
+node_modules/
+dist/
+.expo/
+*.tsbuildinfo
+
+# env
+.env
+.env.local
+.env.production
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Expo
+apps/mobile/ios/
+apps/mobile/android/
+
+# Turbo
+.turbo/
+
+# MinIO data
+docker/minio-data/
+
+# PostgreSQL data
+docker/pg-data/
+
+# Logs
+*.log
+npm-debug.log*
