@@ -83,7 +83,7 @@ export async function stopRoutes(app: FastifyInstance) {
       return [];
     }
 
-    // Batch insert into DB
+    // Batch insert into DB (ON CONFLICT for race with prefetchStops)
     const values: unknown[] = [];
     const placeholders: string[] = [];
     let idx = 1;
@@ -93,16 +93,24 @@ export async function stopRoutes(app: FastifyInstance) {
       idx += 5;
     }
 
-    const inserted = await query<StopRow>(
+    await query(
       `INSERT INTO stops (game_id, osm_id, name, location)
        VALUES ${placeholders.join(", ")}
-       RETURNING id, game_id, osm_id, name,
-                 ST_Y(location::geometry) as lat,
-                 ST_X(location::geometry) as lng`,
+       ON CONFLICT (game_id, osm_id) DO NOTHING`,
       values,
     );
 
-    request.log.info(`Cached ${inserted.rowCount} stops for game ${code}`);
-    return inserted.rows.map(toStop);
+    // Re-read from cache to include rows inserted by prefetchStops
+    const allStops = await query<StopRow>(
+      `SELECT id, game_id, osm_id, name,
+              ST_Y(location::geometry) as lat,
+              ST_X(location::geometry) as lng
+       FROM stops WHERE game_id = $1
+       ORDER BY name`,
+      [game.id],
+    );
+
+    request.log.info(`Cached ${allStops.rowCount} stops for game ${code}`);
+    return allStops.rows.map(toStop);
   });
 }

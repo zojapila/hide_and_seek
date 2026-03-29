@@ -132,17 +132,40 @@ export default function MapScreen() {
     );
   }, []);
 
-  // Fetch stops when game enters hiding/seeking phase
+  // Fetch stops when game enters hiding/seeking phase (with retry)
   useEffect(() => {
     if (!gameCode) return;
     if (phase !== "hiding" && phase !== "seeking") return;
     if (stops.length > 0) return; // already loaded
 
-    api<Stop[]>(`/games/${gameCode}/stops`)
-      .then((data) => setStops(data))
-      .catch(() => {
-        /* stops will just not appear — non-critical */
-      });
+    let cancelled = false;
+    let attempt = 0;
+
+    const fetchStops = () => {
+      api<Stop[]>(`/games/${gameCode}/stops`)
+        .then((data) => {
+          if (!cancelled && data.length > 0) {
+            setStops(data);
+          } else if (!cancelled && attempt < 3) {
+            // Stops not ready yet (prefetch in progress) — retry
+            attempt++;
+            setTimeout(fetchStops, 2000);
+          }
+        })
+        .catch(() => {
+          if (!cancelled && attempt < 3) {
+            attempt++;
+            setTimeout(fetchStops, 2000);
+          }
+        });
+    };
+
+    // Wait a moment for prefetch to complete
+    const timer = setTimeout(fetchStops, 1000);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [gameCode, phase, stops.length, setStops]);
 
   const handleRecenter = useCallback(() => {
