@@ -102,6 +102,13 @@ async function autoAssignStops(
   gameId: string,
   log: FastifyBaseLogger,
 ): Promise<void> {
+  // Get geofence radius from game config
+  const gameResult = await query<{ geofence_radius_m: number }>(
+    "SELECT geofence_radius_m FROM games WHERE id = $1",
+    [gameId],
+  );
+  const geofenceRadiusM = gameResult.rows[0]?.geofence_radius_m ?? 200;
+
   // Find hiders who haven't chosen a stop
   const unchosenResult = await query<{ id: string; name: string; current_location: string | null }>(
     `SELECT id, name, ST_AsGeoJSON(current_location)::text AS current_location
@@ -117,6 +124,8 @@ async function autoAssignStops(
   for (const hider of unchosenResult.rows) {
     let stopId: string | null = null;
     let stopName: string | null = null;
+    let stopLat: number | null = null;
+    let stopLng: number | null = null;
 
     if (hider.current_location) {
       // Find nearest stop by distance
@@ -124,8 +133,11 @@ async function autoAssignStops(
       const lng = geo.coordinates[0];
       const lat = geo.coordinates[1];
 
-      const nearestResult = await query<{ id: string; name: string }>(
-        `SELECT id, name FROM stops
+      const nearestResult = await query<{ id: string; name: string; lat: number; lng: number }>(
+        `SELECT id, name,
+                ST_Y(location::geometry) as lat,
+                ST_X(location::geometry) as lng
+         FROM stops
          WHERE game_id = $1
          ORDER BY location <-> ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography
          LIMIT 1`,
@@ -133,31 +145,51 @@ async function autoAssignStops(
       );
 
       if (nearestResult.rowCount! > 0) {
-        stopId = nearestResult.rows[0].id;
-        stopName = nearestResult.rows[0].name;
+        const s = nearestResult.rows[0];
+        stopId = s.id;
+        stopName = s.name;
+        stopLat = s.lat;
+        stopLng = s.lng;
       }
     }
 
     if (!stopId) {
       // Fallback: pick a random stop in the game
-      const randomResult = await query<{ id: string; name: string }>(
-        `SELECT id, name FROM stops WHERE game_id = $1 ORDER BY RANDOM() LIMIT 1`,
+      const randomResult = await query<{ id: string; name: string; lat: number; lng: number }>(
+        `SELECT id, name,
+                ST_Y(location::geometry) as lat,
+                ST_X(location::geometry) as lng
+         FROM stops WHERE game_id = $1 ORDER BY RANDOM() LIMIT 1`,
         [gameId],
       );
       if (randomResult.rowCount! > 0) {
-        stopId = randomResult.rows[0].id;
-        stopName = randomResult.rows[0].name;
+        const s = randomResult.rows[0];
+        stopId = s.id;
+        stopName = s.name;
+        stopLat = s.lat;
+        stopLng = s.lng;
       }
     }
 
-    if (stopId && stopName) {
+    if (stopId && stopName && stopLat != null && stopLng != null) {
+      // Generate geofence polygon
+      await query(
+        `UPDATE stops SET geofence = ST_Buffer(location, $1)
+         WHERE id = $2 AND geofence IS NULL`,
+        [geofenceRadiusM, stopId],
+      );
+
       await query("UPDATE players SET chosen_stop_id = $1 WHERE id = $2", [stopId, hider.id]);
       io.to(room).emit("game:stop_chosen", {
         playerId: hider.id,
         stopId,
         stopName,
+        geofence: {
+          center: { lat: stopLat, lng: stopLng },
+          radiusM: geofenceRadiusM,
+        },
       });
-      log.info(`Auto-assigned stop "${stopName}" to hider "${hider.name}" in game ${gameId}`);
+      log.info(`Auto-assigned stop "${stopName}" to hider "${hider.name}" in game ${gameId} (geofence ${geofenceRadiusM}m)`);
     }
   }
 }

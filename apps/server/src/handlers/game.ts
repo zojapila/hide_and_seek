@@ -257,14 +257,31 @@ export function registerGameHandlers(
     }
 
     // Stop must belong to this game
-    const stopResult = await query<{ id: string; name: string }>(
-      "SELECT id, name FROM stops WHERE id = $1 AND game_id = $2",
+    const stopResult = await query<{ id: string; name: string; lat: number; lng: number }>(
+      `SELECT id, name,
+              ST_Y(location::geometry) as lat,
+              ST_X(location::geometry) as lng
+       FROM stops WHERE id = $1 AND game_id = $2`,
       [stopId, sd.gameId],
     );
     if (stopResult.rowCount === 0) {
       log.warn(`Socket ${socket.id}: game:choose_stop — stop ${stopId} not in game ${sd.gameId}`);
       return;
     }
+
+    // Get geofence radius from game config
+    const radiusResult = await query<{ geofence_radius_m: number }>(
+      "SELECT geofence_radius_m FROM games WHERE id = $1",
+      [sd.gameId],
+    );
+    const geofenceRadiusM = radiusResult.rows[0]?.geofence_radius_m ?? 200;
+
+    // Generate geofence polygon and update player + stop
+    await query(
+      `UPDATE stops SET geofence = ST_Buffer(location, $1)
+       WHERE id = $2 AND geofence IS NULL`,
+      [geofenceRadiusM, stopId],
+    );
 
     // Update player's chosen stop
     await query(
@@ -273,16 +290,20 @@ export function registerGameHandlers(
     );
 
     const room = `game:${sd.gameId}`;
-    const stopName = stopResult.rows[0].name;
+    const stop = stopResult.rows[0];
 
     // Notify all players in the game
     io.to(room).emit("game:stop_chosen", {
       playerId: sd.playerId,
       stopId,
-      stopName,
+      stopName: stop.name,
+      geofence: {
+        center: { lat: stop.lat, lng: stop.lng },
+        radiusM: geofenceRadiusM,
+      },
     });
 
-    log.info(`Player "${sd.playerName}" chose stop "${stopName}" in game ${sd.gameId}`);
+    log.info(`Player "${sd.playerName}" chose stop "${stop.name}" in game ${sd.gameId} (geofence ${geofenceRadiusM}m)`);
   });
 
   socket.on("disconnect", () => {

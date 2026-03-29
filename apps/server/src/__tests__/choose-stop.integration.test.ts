@@ -153,7 +153,12 @@ describe("game:choose_stop", () => {
     const { stopA } = await startGameAndInsertStops(hider, gameCode);
 
     // Hider chooses stop A
-    const chosenPromise = waitFor<{ playerId: string; stopId: string; stopName: string }>(
+    const chosenPromise = waitFor<{
+      playerId: string;
+      stopId: string;
+      stopName: string;
+      geofence: { center: { lat: number; lng: number }; radiusM: number };
+    }>(
       hider,
       "game:stop_chosen",
     );
@@ -164,6 +169,19 @@ describe("game:choose_stop", () => {
     expect(chosenData.playerId).toBe(hiderPlayer.id);
     expect(chosenData.stopId).toBe(stopA);
     expect(chosenData.stopName).toBe("Stop A");
+
+    // Verify geofence data
+    expect(chosenData.geofence).toBeDefined();
+    expect(chosenData.geofence.center.lat).toBeCloseTo(50.06, 1);
+    expect(chosenData.geofence.center.lng).toBeCloseTo(19.93, 1);
+    expect(chosenData.geofence.radiusM).toBe(200); // default geofence_radius_m
+
+    // Verify geofence polygon stored in DB
+    const geoResult = await query<{ has_geofence: boolean }>(
+      "SELECT geofence IS NOT NULL AS has_geofence FROM stops WHERE id = $1",
+      [stopA],
+    );
+    expect(geoResult.rows[0].has_geofence).toBe(true);
 
     // Verify DB updated
     const dbResult = await query<{ chosen_stop_id: string | null }>(

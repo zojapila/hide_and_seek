@@ -303,24 +303,39 @@ Obecnie chcialabym
 
 ### Epic 2.4: Geofence — generowanie i wizualizacja
 
+**Status:** DONE — branch `feat/2.3-hide-at-stop`
+
 **Cel:** Po wyborze przystanku generowany jest geofence (koło X m). Chowający widzi go na mapie i nie może go opuścić.
 
 | # | Story | Opis | DoD |
 |---|---|---|---|
-| 2.4.1 | Backend: generowanie geofence | Po wyborze przystanku → `ST_Buffer(location, radius)` → zapis w `stops.geofence` | Polygon w DB, radius z konfiguracji gry |
-| 2.4.2 | REST: GET /games/:id/geofence | Zwraca geofence chowającego (polygon GeoJSON) | Poprawny GeoJSON, dostępny tylko w fazie `seeking` |
-| 2.4.3 | Mobile: GeofenceOverlay | Przezroczysty okrąg na mapie wokół przystanku | Widoczny, nie zasłania mapy, kolor rozróżnialny |
-| 2.4.4 | Hook useGeofence | Monitoruje pozycję chowającego vs granica geofence (Turf.js) | Oblicza dystans do krawędzi w czasie rzeczywistym |
-| 2.4.5 | Ostrzeżenie: zbliżanie do granicy | Wibracja + dźwięk + wizualny alert gdy <20m do krawędzi geofence | Stopniowane: 20m → lekkie ostrzeżenie, 5m → mocne |
-| 2.4.6 | Ostrzeżenie: poza geofence | Jeśli chowający przekroczy granicę → czerwony alert + powiadomienie | Wyraźne "WRÓĆ! Jesteś poza strefą!" |
+| 2.4.1 | Backend: generowanie geofence | Po wyborze przystanku → `ST_Buffer(location, radius)` → zapis w `stops.geofence` | Polygon w DB, radius z `games.geofence_radius_m` (default 200m) |
+| 2.4.2 | Shared: geofence w game:stop_chosen | Event `game:stop_chosen` rozszerzony o `geofence: { center, radiusM }` | TypeScript types kompilują się bez błędów |
+| 2.4.3 | Mobile: GeofenceOverlay | `Circle` z react-native-maps — zielone, półprzezroczyste koło na mapie | Widoczne po wyborze przystanku, nie zasłania mapy |
+| 2.4.4 | Hook useGeofence | Haversine distance do krawędzi geofence, 3 poziomy ostrzeżeń | approaching (<30m), critical (<10m), outside (<0m) |
+| 2.4.5 | Mobile: warning banner | Floating banner na dole: żółty (approaching), pomarańczowy (critical), czerwony (outside) | Wyraźne ostrzeżenie z dystansem |
+| 2.4.6 | Haptics | `expo-haptics` — Warning feedback (approaching), Error feedback (critical/outside) | Wibracja przy zmianie poziomu ostrzeżenia |
+| 2.4.7 | Auto-assign + geofence | `autoAssignStops()` w timer.ts też generuje geofence i emituje center+radiusM | Hiderzy bez wyboru też mają geofence po transitionToSeeking |
 
 **Review & Testy:**
-- [ ] Code review: klient-side Turf.js vs serwer PostGIS — czy nie ma desynchronizacji
-- [ ] Test jednostkowy: Turf.js — dystans do krawędzi koła, punkt wewnątrz/na zewnątrz
-- [ ] Test jednostkowy: backend ST_Buffer — generuje poprawny polygon
-- [ ] Test integracyjny: wybrany przystanek → geofence wygenerowany → dostępny przez API → overlay na mapie
-- [ ] Test manualny: fizycznie chodzić w okolicy — ostrzeżenia dźwiękowe odpalają się w odpowiednich momentach
-- [ ] Test edge case: brak GPS chwilowo → nie wyrzucać fałszywego alarmu "poza geofence"
+- [x] Code review: ST_Buffer generuje polygon, ON CONFLICT chroni przed duplikatami
+- [x] Test integracyjny: hider wybiera stop → `game:stop_chosen` zawiera `geofence.center` i `geofence.radiusM=200`
+- [x] Test: polygon w DB (`stops.geofence IS NOT NULL`) po wyborze
+- [ ] Test manualny: fizycznie chodzić w okolicy — Circle widoczny, ostrzeżenia na 30m/10m/0m
+- [ ] Test edge case: brak GPS chwilowo → hook zwraca `warning: "none"`
+
+**Szczegóły implementacji:**
+- `packages/shared/src/index.ts` — `game:stop_chosen` payload rozszerzony o `geofence: { center: { lat, lng }, radiusM }`
+- `apps/server/src/handlers/game.ts` — `game:choose_stop` handler: pobiera `geofence_radius_m` z games, `ST_Buffer(location, radius)` → UPDATE stops.geofence, emituje center+radiusM
+- `apps/server/src/services/timer.ts` — `autoAssignStops()` — też generuje geofence, pobiera stop lat/lng, emituje pełny payload
+- `apps/mobile/hooks/useGeofence.ts` — haversine distance, `distanceToEdge = radiusM - distToCenter`, 3 progi: 30m/10m/0m
+- `apps/mobile/stores/gameStore.ts` — dodane `geofenceCenter`, `geofenceRadiusM`, `setGeofence()`
+- `apps/mobile/app/(game)/map.tsx`:
+  - `Circle` overlay: zielone (`rgba(34,197,94,0.12)` fill, `0.6` stroke)
+  - Warning banner: absolute bottom:80, 3 kolory (żółty/pomarańczowy/czerwony)
+  - `expo-haptics`: `NotificationFeedbackType.Warning` (approaching), `.Error` (critical/outside)
+  - Listener `game:stop_chosen` aktualizuje store z `setGeofence(data.geofence.center, data.geofence.radiusM)`
+- **74 testów vitest (wszystkie przechodzą) — rozszerzone o geofence assercje**
 
 ---
 

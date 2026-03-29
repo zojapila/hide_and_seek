@@ -115,7 +115,12 @@ export interface ServerToClientEvents {
   "game:player_joined": (data: { player: Player }) => void;
   "game:player_left": (data: { playerId: string }) => void;
   "game:phase_change": (data: { status: GameStatus }) => void;
-  "game:stop_chosen": (data: { playerId: string; stopId: string; stopName: string }) => void;
+  "game:stop_chosen": (data: {
+    playerId: string;
+    stopId: string;
+    stopName: string;
+    geofence: { center: { lat: number; lng: number }; radiusM: number };
+  }) => void;
   "game:force_choose": (data: { nearbyStops: Pick<Stop, "id" | "name" | "location">[] }) => void;
   "location:seekers": (data: { players: Pick<Player, "id" | "name" | "currentLocation">[] }) => void;
   "location:geofence_warning": (data: { distanceToEdge: number }) => void;

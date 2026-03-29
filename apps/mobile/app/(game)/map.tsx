@@ -1,8 +1,10 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { View, Text, StyleSheet, Pressable, Linking, AppState, Alert } from "react-native";
-import MapView, { Marker, Callout, PROVIDER_GOOGLE } from "react-native-maps";
+import MapView, { Marker, Callout, Circle, PROVIDER_GOOGLE } from "react-native-maps";
+import * as Haptics from "expo-haptics";
 import { useLocation } from "../../hooks/useLocation";
 import { useGameStore } from "../../stores/gameStore";
+import { useGeofence, type GeofenceWarning } from "../../hooks/useGeofence";
 import { getSocket } from "../../lib/socket";
 import { api } from "../../lib/api";
 import { GameTimer } from "../../components/GameTimer";
@@ -29,6 +31,12 @@ export default function MapScreen() {
   const chosenStopId = useGameStore((s) => s.chosenStopId);
   const setChosenStopId = useGameStore((s) => s.setChosenStopId);
   const playerId = useGameStore((s) => s.playerId);
+  const geofenceCenter = useGameStore((s) => s.geofenceCenter);
+  const geofenceRadiusM = useGameStore((s) => s.geofenceRadiusM);
+  const setGeofence = useGameStore((s) => s.setGeofence);
+
+  const { distanceToEdge, warning } = useGeofence();
+  const lastWarningRef = useRef<GeofenceWarning>("none");
 
   // Update store + emit location to server
   useEffect(() => {
@@ -103,17 +111,23 @@ export default function MapScreen() {
   // Listen for stop chosen events
   useEffect(() => {
     const socket = getSocket();
-    const handleStopChosen = (data: { playerId: string; stopId: string; stopName: string }) => {
+    const handleStopChosen = (data: {
+      playerId: string;
+      stopId: string;
+      stopName: string;
+      geofence: { center: { lat: number; lng: number }; radiusM: number };
+    }) => {
       const myId = useGameStore.getState().playerId;
       if (data.playerId === myId) {
         setChosenStopId(data.stopId);
+        setGeofence(data.geofence.center, data.geofence.radiusM);
       }
     };
     socket.on("game:stop_chosen", handleStopChosen);
     return () => {
       socket.off("game:stop_chosen", handleStopChosen);
     };
-  }, [setChosenStopId]);
+  }, [setChosenStopId, setGeofence]);
 
   const handleChooseStop = useCallback((stop: Stop) => {
     Alert.alert(
@@ -131,6 +145,18 @@ export default function MapScreen() {
       ],
     );
   }, []);
+
+  // Haptic feedback when geofence warning level changes
+  useEffect(() => {
+    if (warning === lastWarningRef.current) return;
+    lastWarningRef.current = warning;
+
+    if (warning === "approaching") {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    } else if (warning === "critical" || warning === "outside") {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    }
+  }, [warning]);
 
   // Fetch stops when game enters hiding/seeking phase (with retry)
   useEffect(() => {
@@ -283,7 +309,43 @@ export default function MapScreen() {
               </Callout>
             </Marker>
           ))}
+
+        {/* Geofence circle overlay (hider only) */}
+        {playerRole === "hider" && geofenceCenter && geofenceRadiusM && (
+          <Circle
+            center={{
+              latitude: geofenceCenter.lat,
+              longitude: geofenceCenter.lng,
+            }}
+            radius={geofenceRadiusM}
+            fillColor="rgba(34, 197, 94, 0.12)"
+            strokeColor="rgba(34, 197, 94, 0.6)"
+            strokeWidth={2}
+          />
+        )}
       </MapView>
+
+      {/* Geofence warning banner */}
+      {playerRole === "hider" && warning !== "none" && (
+        <View
+          style={[
+            styles.warningBanner,
+            warning === "outside"
+              ? styles.warningOutside
+              : warning === "critical"
+                ? styles.warningCritical
+                : styles.warningApproaching,
+          ]}
+        >
+          <Text style={styles.warningText}>
+            {warning === "outside"
+              ? "⚠️ WRÓĆ! Jesteś poza strefą!"
+              : warning === "critical"
+                ? `⚠️ Uwaga! ${Math.round(distanceToEdge ?? 0)}m do granicy!`
+                : `📍 Zbliżasz się do granicy (${Math.round(distanceToEdge ?? 0)}m)`}
+          </Text>
+        </View>
+      )}
 
       {/* Phase badge */}
       <View style={styles.phaseBadge}>
@@ -441,5 +503,33 @@ const styles = StyleSheet.create({
   },
   toggleStopsText: {
     fontSize: 20,
+  },
+  warningBanner: {
+    position: "absolute",
+    bottom: 80,
+    alignSelf: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 6,
+  },
+  warningApproaching: {
+    backgroundColor: "#fbbf24",
+  },
+  warningCritical: {
+    backgroundColor: "#f97316",
+  },
+  warningOutside: {
+    backgroundColor: "#ef4444",
+  },
+  warningText: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "700",
+    textAlign: "center",
   },
 });
