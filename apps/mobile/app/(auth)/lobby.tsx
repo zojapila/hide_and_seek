@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -7,10 +7,11 @@ import {
   Pressable,
   Alert,
 } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, router } from "expo-router";
 import { api } from "../../lib/api";
-import { getSocket, disconnectSocket } from "../../lib/socket";
-import type { Game, Player } from "@hideseek/shared";
+import { getSocket } from "../../lib/socket";
+import { useGameStore } from "../../stores/gameStore";
+import type { Game, GameStatus, Player } from "@hideseek/shared";
 
 interface GameWithPlayers extends Game {
   players: Player[];
@@ -21,12 +22,15 @@ export default function LobbyScreen() {
     code: string;
     playerId: string;
     playerName: string;
+    playerRole: string;
     isCreator: string;
   }>();
 
   const [game, setGame] = useState<Game | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
   const isCreator = params.isCreator === "1";
+  const gameRef = useRef<Game | null>(null);
+  const playersRef = useRef<Player[]>([]);
 
   // Fetch initial game state
   useEffect(() => {
@@ -34,6 +38,8 @@ export default function LobbyScreen() {
       .then((data) => {
         setGame(data);
         setPlayers(data.players);
+        gameRef.current = data;
+        playersRef.current = data.players;
       })
       .catch((err) => {
         Alert.alert("Błąd", err instanceof Error ? err.message : "Nie udało się pobrać gry");
@@ -53,21 +59,56 @@ export default function LobbyScreen() {
     socket.on("game:player_joined", ({ player }) => {
       setPlayers((prev) => {
         if (prev.some((p) => p.id === player.id)) return prev;
-        return [...prev, player];
+        const updated = [...prev, player];
+        playersRef.current = updated;
+        return updated;
       });
     });
 
     socket.on("game:player_left", ({ playerId }) => {
-      setPlayers((prev) => prev.filter((p) => p.id !== playerId));
+      setPlayers((prev) => {
+        const updated = prev.filter((p) => p.id !== playerId);
+        playersRef.current = updated;
+        return updated;
+      });
+    });
+
+    // Listen for game start → navigate to map
+    socket.on("game:phase_change", ({ status }: { status: GameStatus }) => {
+      if (status === "hiding") {
+        const setGameInfo = useGameStore.getState().setGameInfo;
+        const setPhase = useGameStore.getState().setPhase;
+        const currentGame = gameRef.current;
+
+        if (currentGame) {
+          setGameInfo({
+            gameId: currentGame.id,
+            gameCode: params.code!,
+            playerId: params.playerId!,
+            playerName: params.playerName!,
+            playerRole: (params.playerRole as "hider" | "seeker") ?? "seeker",
+          });
+        }
+        setPhase("hiding");
+
+        router.replace("/(game)/map");
+      }
     });
 
     return () => {
-      disconnectSocket();
+      socket.off("game:player_joined");
+      socket.off("game:player_left");
+      socket.off("game:phase_change");
+      // Don't disconnect — socket is needed for the game screen
     };
-  }, [params.code, params.playerName]);
+  }, [params.code, params.playerName, params.playerId, params.playerRole]);
 
   const handleStart = useCallback(() => {
     const socket = getSocket();
+    if (!socket.connected) {
+      Alert.alert("Błąd", "Połączenie z serwerem utracone. Spróbuj ponownie.");
+      return;
+    }
     socket.emit("game:start");
   }, []);
 
