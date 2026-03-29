@@ -31,12 +31,17 @@ export function startHidingTimer(
   const intervalId = setInterval(async () => {
     const remainingMs = Math.max(0, endsAt - Date.now());
 
-    io.to(room).emit("timer:sync", { phase: "hiding", remainingMs });
-
     if (remainingMs <= 0) {
       stopTimer(gameId);
-      await transitionToSeeking(io, gameId, log);
+      try {
+        await transitionToSeeking(io, gameId, log);
+      } catch (err) {
+        log.error(`Timer: failed to transition game ${gameId} to seeking: ${err}`);
+      }
+      return;
     }
+
+    io.to(room).emit("timer:sync", { phase: "hiding", remainingMs });
   }, 1000);
 
   activeTimers.set(gameId, { intervalId, endsAt, phase: "hiding" });

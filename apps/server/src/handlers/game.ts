@@ -48,14 +48,6 @@ export function registerGameHandlers(
 
     const game = gameResult.rows[0];
 
-    // If game is already in progress, send current timer state to the joining client
-    if (game.status === "hiding" || game.status === "seeking") {
-      const timerState = getTimerState(game.id);
-      if (timerState) {
-        socket.emit("timer:sync", timerState);
-      }
-    }
-
     // Find player by name in this game
     const playerResult = await query<PlayerRow>(
       "SELECT * FROM players WHERE game_id = $1 AND name = $2",
@@ -83,6 +75,14 @@ export function registerGameHandlers(
     };
 
     log.info(`Player "${playerRow.name}" (${playerRow.role}) joined room ${room}`);
+
+    // If game is already in progress, send current timer state to the joining client
+    if (game.status === "hiding" || game.status === "seeking") {
+      const timerState = getTimerState(game.id);
+      if (timerState) {
+        socket.emit("timer:sync", timerState);
+      }
+    }
 
     // Notify other players in the room
     socket.to(room).emit("game:player_joined", {

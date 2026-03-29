@@ -68,7 +68,7 @@ export default function MapScreen() {
     const socket = getSocket();
 
     const handleTimerSync = (data: { phase: string; remainingMs: number }) => {
-      const seconds = Math.round(data.remainingMs / 1000);
+      const seconds = Math.ceil(data.remainingMs / 1000);
       setSecondsLeft(seconds);
       // Sync phase if server says we've moved to seeking
       if (data.phase === "seeking") {

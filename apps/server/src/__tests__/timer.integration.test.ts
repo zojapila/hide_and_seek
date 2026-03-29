@@ -140,10 +140,6 @@ function connectClient(client: AppClientSocket): Promise<void> {
   });
 }
 
-function delay(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
 beforeAll(async () => {
   app = Fastify({ logger: false });
   await app.register(cors, { origin: "*" });
@@ -224,15 +220,15 @@ describe("timer integration: game:start", () => {
   it("reconnecting client gets timer:sync on game:join", async () => {
     const { game, client } = await setupGame();
 
-    client.emit("game:start", { lat: 50.0614, lng: 19.9383 });
-    await waitFor(client, "timer:sync", 3000);
-
-    // Second player joins mid-game
+    // Register second player while game is still 'waiting'
     await app.inject({
       method: "POST",
       url: `/games/${game.code}/join`,
       payload: { name: "Late", role: "seeker" },
     });
+
+    client.emit("game:start", { lat: 50.0614, lng: 19.9383 });
+    await waitFor(client, "timer:sync", 3000);
 
     const client2 = createClient();
     await connectClient(client2);
