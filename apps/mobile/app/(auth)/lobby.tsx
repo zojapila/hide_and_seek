@@ -106,7 +106,7 @@ export default function LobbyScreen() {
       const loc = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
       });
-      socket.emit("game:start", { lat: loc.coords.latitude, lng: loc.coords.longitude });
+      socket.emit("game:start", { lat: 50.0614, lng: 19.9383 });
     } catch {
       Alert.alert("Błąd", "Nie udało się pobrać lokalizacji. Włącz GPS i spróbuj ponownie.");
     }
@@ -140,7 +140,8 @@ export default function LobbyScreen() {
       {game && (
         <View style={styles.settings}>
           <Text style={styles.settingText}>⏱ {game.hideTimeMinutes} min na chowanie</Text>
-          <Text style={styles.settingText}>📍 Geofence: {game.geofenceRadiusM}m</Text>
+          <Text style={styles.settingText}>� {game.seekTimeMinutes} min na szukanie</Text>
+          <Text style={styles.settingText}>�📍 Geofence: {game.geofenceRadiusM}m</Text>
           <Text style={styles.settingText}>🗺 Promień gry: {game.gameRadiusM}m</Text>
         </View>
       )}

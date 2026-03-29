@@ -49,6 +49,42 @@ export function startHidingTimer(
 }
 
 /**
+ * Start the seeking-phase countdown for a game.
+ * Emits `timer:sync` every second.  When it expires the game finishes.
+ */
+function startSeekingTimer(
+  io: Server<ClientToServerEvents, ServerToClientEvents>,
+  gameId: string,
+  seekTimeMinutes: number,
+  log: FastifyBaseLogger,
+): void {
+  stopTimer(gameId);
+
+  const totalMs = seekTimeMinutes * 60 * 1000;
+  const endsAt = Date.now() + totalMs;
+  const room = `game:${gameId}`;
+
+  const intervalId = setInterval(async () => {
+    const remainingMs = Math.max(0, endsAt - Date.now());
+
+    if (remainingMs <= 0) {
+      stopTimer(gameId);
+      try {
+        await finishGame(io, gameId, log);
+      } catch (err) {
+        log.error(`Timer: failed to finish game ${gameId}: ${err}`);
+      }
+      return;
+    }
+
+    io.to(room).emit("timer:sync", { phase: "seeking", remainingMs });
+  }, 1000);
+
+  activeTimers.set(gameId, { intervalId, endsAt, phase: "seeking" });
+  log.info(`Seeking timer started for game ${gameId} — ${seekTimeMinutes} min`);
+}
+
+/**
  * Returns current timer state for a game (for reconnecting clients).
  * Returns null if no timer is running.
  */
@@ -75,10 +111,11 @@ async function transitionToSeeking(
   // Auto-assign stops for hiders who didn't choose
   await autoAssignStops(io, gameId, log);
 
-  const result = await query(
+  const result = await query<{ seek_time_minutes: number }>(
     `UPDATE games
      SET status = 'seeking', seeking_started_at = NOW()
-     WHERE id = $1 AND status = 'hiding'`,
+     WHERE id = $1 AND status = 'hiding'
+     RETURNING seek_time_minutes`,
     [gameId],
   );
 
@@ -87,10 +124,35 @@ async function transitionToSeeking(
     return;
   }
 
+  const { seek_time_minutes } = result.rows[0];
   const room = `game:${gameId}`;
   io.to(room).emit("game:phase_change", { status: "seeking" });
-  io.to(room).emit("timer:sync", { phase: "seeking", remainingMs: 0 });
+
+  // Start seeking countdown
+  startSeekingTimer(io, gameId, seek_time_minutes, log);
   log.info(`Game ${gameId} transitioned to seeking phase`);
+}
+
+async function finishGame(
+  io: Server<ClientToServerEvents, ServerToClientEvents>,
+  gameId: string,
+  log: FastifyBaseLogger,
+): Promise<void> {
+  const result = await query(
+    `UPDATE games SET status = 'finished', finished_at = NOW()
+     WHERE id = $1 AND status = 'seeking'`,
+    [gameId],
+  );
+
+  if (result.rowCount === 0) {
+    log.warn(`Timer: could not finish game ${gameId} (already done?)`);
+    return;
+  }
+
+  const room = `game:${gameId}`;
+  io.to(room).emit("game:phase_change", { status: "finished" });
+  io.to(room).emit("timer:sync", { phase: "finished", remainingMs: 0 });
+  log.info(`Game ${gameId} finished — seeking time expired`);
 }
 
 /**

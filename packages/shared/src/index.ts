@@ -7,6 +7,7 @@ export interface Game {
   code: string;
   status: GameStatus;
   hideTimeMinutes: number;
+  seekTimeMinutes: number;
   geofenceRadiusM: number;
   gameRadiusM: number;
   startedAt: string | null;
