@@ -1,7 +1,78 @@
-import { View, Text, StyleSheet, Pressable } from 'react-native';
-import { Link } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
+import { Link, router } from 'expo-router';
+import { loadSession, clearSession } from '../../lib/session';
+import { api } from '../../lib/api';
+import { useGameStore } from '../../stores/gameStore';
+import { getSocket } from '../../lib/socket';
+import type { Game, Player } from '@hideseek/shared';
 
 export default function HomeScreen() {
+  const [checking, setChecking] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const session = await loadSession();
+        if (!session) { setChecking(false); return; }
+
+        const data = await api<{ game: Game; player: Player }>(
+          `/games/${session.gameCode}/rejoin`,
+          { method: 'POST', body: JSON.stringify({ playerName: session.playerName }) },
+        );
+
+        const { game, player } = data;
+
+        if (game.status === 'waiting') {
+          // Go back to lobby
+          router.replace({
+            pathname: '/(auth)/lobby',
+            params: {
+              code: session.gameCode,
+              playerId: player.id,
+              playerName: player.name,
+              playerRole: player.role,
+              isCreator: '0',
+            },
+          });
+          return;
+        }
+
+        // Game in progress — restore store and go to map
+        const store = useGameStore.getState();
+        store.setGameInfo({
+          gameId: game.id,
+          gameCode: session.gameCode,
+          playerId: player.id,
+          playerName: player.name,
+          playerRole: player.role,
+        });
+        store.setPhase(game.status);
+
+        const socket = getSocket();
+        socket.connect();
+        socket.emit('game:join', {
+          gameCode: session.gameCode,
+          playerName: session.playerName,
+        });
+
+        router.replace('/(game)/map');
+      } catch {
+        await clearSession();
+        setChecking(false);
+      }
+    })();
+  }, []);
+
+  if (checking) {
+    return (
+      <View style={styles.container}>
+        <ActivityIndicator size="large" color="#2563eb" />
+        <Text style={styles.subtitle}>Sprawdzanie sesji…</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>🏙️ Hide & Seek</Text>

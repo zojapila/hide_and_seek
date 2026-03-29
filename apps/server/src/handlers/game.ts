@@ -1,5 +1,5 @@
 import type { Server, Socket } from "socket.io";
-import type { ServerToClientEvents, ClientToServerEvents } from "@hideseek/shared";
+import type { ServerToClientEvents, ClientToServerEvents, PlayerRole } from "@hideseek/shared";
 import { query } from "../db/client";
 import { startHidingTimer, getTimerState } from "../services/timer";
 import { prefetchStops } from "../services/overpass";
@@ -225,6 +225,44 @@ export function registerGameHandlers(
         ],
       });
     }
+  });
+
+  // ── game:change_role — switch role before game starts ──
+  socket.on("game:change_role", async (data) => {
+    const sd = socket.data as SocketData;
+    if (!sd?.gameId || !sd?.playerId) {
+      log.warn(`Socket ${socket.id}: game:change_role without game context`);
+      return;
+    }
+
+    const role = data?.role as PlayerRole;
+    if (role !== "hider" && role !== "seeker") {
+      log.warn(`Socket ${socket.id}: game:change_role invalid role "${role}"`);
+      return;
+    }
+
+    // Only allowed in waiting phase
+    const gameResult = await query<{ status: string }>(
+      "SELECT status FROM games WHERE id = $1",
+      [sd.gameId],
+    );
+    if (gameResult.rows[0]?.status !== "waiting") {
+      log.warn(`Socket ${socket.id}: game:change_role in phase "${gameResult.rows[0]?.status}"`);
+      return;
+    }
+
+    await query("UPDATE players SET role = $1 WHERE id = $2", [role, sd.playerId]);
+
+    // Update socket rooms
+    const oldRoleRoom = `game:${sd.gameId}:${sd.playerRole}s`;
+    const newRoleRoom = `game:${sd.gameId}:${role}s`;
+    await socket.leave(oldRoleRoom);
+    await socket.join(newRoleRoom);
+    sd.playerRole = role;
+
+    const room = `game:${sd.gameId}`;
+    io.to(room).emit("game:role_changed", { playerId: sd.playerId, role });
+    log.info(`Player "${sd.playerName}" changed role to ${role} in game ${sd.gameId}`);
   });
 
   // ── game:choose_stop — hider selects a stop to hide at ──

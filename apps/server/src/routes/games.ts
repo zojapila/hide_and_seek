@@ -162,6 +162,44 @@ export async function gameRoutes(app: FastifyInstance) {
     return reply.code(201).send(toPlayer(result.rows[0]));
   });
 
+  // POST /games/:code/rejoin — reconnect to an in-progress game
+  app.post<{ Params: { code: string } }>("/games/:code/rejoin", async (request, reply) => {
+    const code = request.params.code.toUpperCase();
+    const b = request.body as Record<string, unknown>;
+    const playerName = String(b.playerName ?? "").trim();
+
+    if (!playerName) {
+      return reply.code(400).send({ message: "playerName is required" });
+    }
+
+    const gameResult = await query<GameRow>(
+      `SELECT *, ST_Y(center_point::geometry) as center_lat, ST_X(center_point::geometry) as center_lng
+       FROM games WHERE code = $1`,
+      [code],
+    );
+    if (gameResult.rowCount === 0) {
+      return reply.code(404).send({ message: "Game not found" });
+    }
+
+    const game = gameResult.rows[0];
+    if (game.status === "finished") {
+      return reply.code(410).send({ message: "Game has finished" });
+    }
+
+    const playerResult = await query<PlayerRow>(
+      "SELECT * FROM players WHERE game_id = $1 AND name = $2",
+      [game.id, playerName],
+    );
+    if (playerResult.rowCount === 0) {
+      return reply.code(404).send({ message: "Player not found in this game" });
+    }
+
+    return {
+      game: toGame(game),
+      player: toPlayer(playerResult.rows[0]),
+    };
+  });
+
   // GET /games/:code — game state with players
   app.get<{ Params: { code: string } }>("/games/:code", async (request, reply) => {
     const code = request.params.code.toUpperCase();

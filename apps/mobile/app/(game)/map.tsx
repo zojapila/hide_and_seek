@@ -6,6 +6,7 @@ import { useLocation } from "../../hooks/useLocation";
 import { useGameStore } from "../../stores/gameStore";
 import { useGeofence, type GeofenceWarning } from "../../hooks/useGeofence";
 import { getSocket } from "../../lib/socket";
+import { clearSession } from "../../lib/session";
 import { api } from "../../lib/api";
 import { GameTimer } from "../../components/GameTimer";
 import type { Stop } from "@hideseek/shared";
@@ -84,6 +85,11 @@ export default function MapScreen() {
       // Sync phase if server says we've moved to seeking
       if (data.phase === "seeking") {
         setPhase("seeking");
+      }
+      if (data.phase === "finished") {
+        setPhase("finished");
+        setSecondsLeft(null);
+        clearSession();
       }
     };
 

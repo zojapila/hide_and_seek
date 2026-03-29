@@ -116,6 +116,7 @@ export interface ServerToClientEvents {
   "game:player_joined": (data: { player: Player }) => void;
   "game:player_left": (data: { playerId: string }) => void;
   "game:phase_change": (data: { status: GameStatus }) => void;
+  "game:role_changed": (data: { playerId: string; role: PlayerRole }) => void;
   "game:stop_chosen": (data: {
     playerId: string;
     stopId: string;
@@ -137,6 +138,7 @@ export interface ServerToClientEvents {
 export interface ClientToServerEvents {
   "game:join": (data: { gameCode: string; playerName: string }) => void;
   "game:start": (data: { lat: number; lng: number }) => void;
+  "game:change_role": (data: { role: PlayerRole }) => void;
   "game:choose_stop": (data: { stopId: string }) => void;
   "location:update": (data: { lat: number; lng: number }) => void;
   "chat:message": (data: { type: MessageType; content: string; metadata?: Record<string, unknown> }) => void;
