@@ -1,6 +1,7 @@
 import type { Server, Socket } from "socket.io";
 import type { ServerToClientEvents, ClientToServerEvents } from "@hideseek/shared";
 import { query } from "../db/client";
+import { startHidingTimer, getTimerState } from "../services/timer";
 import type { FastifyBaseLogger } from "fastify";
 
 interface PlayerRow {
@@ -46,6 +47,14 @@ export function registerGameHandlers(
     }
 
     const game = gameResult.rows[0];
+
+    // If game is already in progress, send current timer state to the joining client
+    if (game.status === "hiding" || game.status === "seeking") {
+      const timerState = getTimerState(game.id);
+      if (timerState) {
+        socket.emit("timer:sync", timerState);
+      }
+    }
 
     // Find player by name in this game
     const playerResult = await query<PlayerRow>(
@@ -122,12 +131,13 @@ export function registerGameHandlers(
     }
 
     // Atomically transition to hiding phase and set center_point
-    const updateResult = await query(
+    const updateResult = await query<{ hide_time_minutes: number }>(
       `UPDATE games
        SET status = 'hiding',
            started_at = NOW(),
            center_point = ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography
-       WHERE id = $1 AND status = 'waiting'`,
+       WHERE id = $1 AND status = 'waiting'
+       RETURNING hide_time_minutes`,
       [sd.gameId, lng, lat],
     );
 
@@ -136,9 +146,13 @@ export function registerGameHandlers(
       return;
     }
 
+    const { hide_time_minutes } = updateResult.rows[0];
     const room = `game:${sd.gameId}`;
     io.to(room).emit("game:phase_change", { status: "hiding" });
     log.info(`Game ${sd.gameId} started — phase: hiding`);
+
+    // Start server-side countdown timer
+    startHidingTimer(io, sd.gameId, hide_time_minutes, log);
   });
 
   // ── location:update — player sends their GPS position ──

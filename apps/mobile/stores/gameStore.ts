@@ -22,6 +22,9 @@ interface GameState {
   stops: Stop[];
   showStops: boolean;
 
+  // Timer
+  secondsLeft: number | null;
+
   // Actions
   setGameInfo: (info: {
     gameId: string;
@@ -35,6 +38,7 @@ interface GameState {
   setSeekerLocations: (players: Pick<Player, "id" | "name" | "currentLocation">[]) => void;
   setStops: (stops: Stop[]) => void;
   toggleStops: () => void;
+  setSecondsLeft: (seconds: number | null) => void;
   reset: () => void;
 }
 
@@ -49,6 +53,7 @@ const initialState = {
   seekerLocations: [],
   stops: [],
   showStops: true,
+  secondsLeft: null,
 };
 
 export const useGameStore = create<GameState>((set) => ({
@@ -72,5 +77,6 @@ export const useGameStore = create<GameState>((set) => ({
     }),
   setStops: (stops) => set({ stops }),
   toggleStops: () => set((state) => ({ showStops: !state.showStops })),
+  setSecondsLeft: (seconds) => set({ secondsLeft: seconds }),
   reset: () => set(initialState),
 }));

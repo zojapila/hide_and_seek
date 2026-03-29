@@ -5,6 +5,7 @@ import { useLocation } from "../../hooks/useLocation";
 import { useGameStore } from "../../stores/gameStore";
 import { getSocket } from "../../lib/socket";
 import { api } from "../../lib/api";
+import { GameTimer } from "../../components/GameTimer";
 import type { Stop } from "@hideseek/shared";
 
 const LOCATION_EMIT_INTERVAL_MS = 4000;
@@ -16,6 +17,7 @@ export default function MapScreen() {
 
   const setMyLocation = useGameStore((s) => s.setMyLocation);
   const phase = useGameStore((s) => s.phase);
+  const setPhase = useGameStore((s) => s.setPhase);
   const seekerLocations = useGameStore((s) => s.seekerLocations);
   const playerRole = useGameStore((s) => s.playerRole);
   const gameCode = useGameStore((s) => s.gameCode);
@@ -23,6 +25,7 @@ export default function MapScreen() {
   const showStops = useGameStore((s) => s.showStops);
   const setStops = useGameStore((s) => s.setStops);
   const toggleStops = useGameStore((s) => s.toggleStops);
+  const setSecondsLeft = useGameStore((s) => s.setSecondsLeft);
 
   // Update store + emit location to server
   useEffect(() => {
@@ -59,6 +62,25 @@ export default function MapScreen() {
       socket.off("location:seekers", handleSeekerLocations);
     };
   }, []);
+
+  // Listen for timer sync
+  useEffect(() => {
+    const socket = getSocket();
+
+    const handleTimerSync = (data: { phase: string; remainingMs: number }) => {
+      const seconds = Math.round(data.remainingMs / 1000);
+      setSecondsLeft(seconds);
+      // Sync phase if server says we've moved to seeking
+      if (data.phase === "seeking") {
+        setPhase("seeking");
+      }
+    };
+
+    socket.on("timer:sync", handleTimerSync);
+    return () => {
+      socket.off("timer:sync", handleTimerSync);
+    };
+  }, [setSecondsLeft, setPhase]);
 
   // Fetch stops when game enters hiding/seeking phase
   useEffect(() => {
@@ -209,6 +231,9 @@ export default function MapScreen() {
           <Text style={styles.toggleStopsText}>{showStops ? "🚏 ✕" : "🚏"}</Text>
         </Pressable>
       )}
+
+      {/* Timer — floating, centered at top */}
+      <GameTimer />
     </View>
   );
 }
