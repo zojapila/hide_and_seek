@@ -43,6 +43,7 @@ export default function JoinScreen() {
           code: code.toUpperCase(),
           playerId: player.id,
           playerName: player.name,
+          playerRole: player.role,
           isCreator: params.isCreator ?? "0",
         },
       });

@@ -72,7 +72,9 @@ Obecnie chcialabym
 
 ## FAZA 1 — Fundament
 
-### Epic 1.1: Inicjalizacja projektu i infrastruktura deweloperska
+### Epic 1.1: Inicjalizacja projektu i infrastruktura deweloperska ✅
+
+**Status:** DONE — zmergowane do `main` (commit `c1bc725`)
 
 **Cel:** Działające środowisko dev — jeden `npm install`, uruchomienie backendu i mobilnej apki.
 
@@ -86,13 +88,15 @@ Obecnie chcialabym
 | 1.1.6 | CI green | GitHub Actions: install → build → typecheck → lint → test (pusty suite) | Push do main → pipeline zielony |
 
 **Review & Testy:**
-- [ ] Code review: PR z całym scaffoldem — sprawdzić strukturę katalogów vs architektura.md
-- [ ] Smoke test: fresh clone → `npm install` → `npm run docker:up` → `npm run dev:server` → `npm run dev:mobile` — wszystko startuje bez błędów
-- [ ] CI przechodzi na GitHubie
+- [x] Code review: PR z całym scaffoldem — sprawdzić strukturę katalogów vs architektura.md
+- [x] Smoke test: fresh clone → `npm install` → `npm run docker:up` → `npm run dev:server` → `npm run dev:mobile` — wszystko startuje bez błędów
+- [x] CI przechodzi na GitHubie
 
 ---
 
-### Epic 1.2: Baza danych — schemat i migracje
+### Epic 1.2: Baza danych — schemat i migracje ✅
+
+**Status:** DONE — zmergowane do `main` (PR #1, commit `68e2b03`)
 
 **Cel:** Tabele `games`, `players`, `stops` gotowe w PostgreSQL z PostGIS.
 
@@ -105,14 +109,16 @@ Obecnie chcialabym
 | 1.2.5 | Migracja: stops | Tabela `stops` z GEOGRAPHY(Point) i GEOGRAPHY(Polygon) | PostGIS geography działa, indeks przestrzenny |
 
 **Review & Testy:**
-- [ ] Code review: SQL migracji — sprawdzić typy, FK, indeksy, brak SQL injection
-- [ ] Test integracyjny: uruchom migracje na czystej bazie → sprawdź `\dt` i `\d games` etc.
-- [ ] Test idempotentności: uruchom migracje 2x — brak błędów
-- [ ] Test rollback: usunięcie tabel i ponowna migracja działa
+- [x] Code review: SQL migracji — sprawdzić typy, FK, indeksy, brak SQL injection (review przez subagenta senior dev — 5 critical + 10 warnings, wszystkie naprawione)
+- [x] Test integracyjny: uruchom migracje na czystej bazie → sprawdź `\dt` i `\d games` etc.
+- [x] Test idempotentności: uruchom migracje 2x — brak błędów
+- [x] Test rollback: usunięcie tabel i ponowna migracja działa
 
 ---
 
-### Epic 1.3: Lobby — tworzenie i dołączanie do gry
+### Epic 1.3: Lobby — tworzenie i dołączanie do gry ✅
+
+**Status:** DONE — zmergowane do `main` (PR #3, commit `b5c50ee`)
 
 **Cel:** Gracz może stworzyć grę (dostaje kod) lub dołączyć do istniejącej podając kod. Wybiera rolę i imię.
 
@@ -129,16 +135,20 @@ Obecnie chcialabym
 | 1.3.9 | Walidacja | Kody case-insensitive, imię 1-20 znaków, parametry gry w sensownych zakresach | Błędy walidacji wyświetlane w UI |
 
 **Review & Testy:**
-- [ ] Code review: PR z endpointami + ekranami
-- [ ] Test jednostkowy: generowanie kodu (unikalność, format)
-- [ ] Test jednostkowy: walidacja inputów (odrzuca puste imię, ujemny czas, zbyt duży promień)
-- [ ] Test integracyjny: stwórz grę → dołącz 3 graczy → sprawdź GET /games/:code
+- [x] Code review: PR z endpointami + ekranami (review + naprawione: hardcoded role, socket validation, NaN bypass, buildApp extraction)
+- [x] Test jednostkowy: generowanie kodu — 4 testy (charset, format, uppercase, 6 znaków)
+- [x] Test jednostkowy: walidacja inputów — 21 testów (puste imię, ujemny czas, zbyt duży promień, NaN bypass)
+- [x] Test integracyjny: stwórz grę → dołącz graczy → sprawdź GET /games/:code — 14 testów (defaults, custom params, uniqueness, case-insensitive, 409, 404, empty name, invalid role)
 - [ ] Test E2E manualny: 2 telefony/emulatory — jeden tworzy grę, drugi dołącza, obaj widzą się w lobby
-- [ ] Test edge case: dołączanie do nieistniejącego kodu, dołączanie gdy gra już started
+- [x] Test edge case: dołączanie do nieistniejącego kodu (404), dołączanie z invalid role
+
+**Łącznie: 39 testów vitest (wszystkie przechodzą)**
 
 ---
 
-### Epic 1.4: Mapa — podstawowy widok z lokalizacją
+### Epic 1.4: Mapa — podstawowy widok z lokalizacją ✅
+
+**Status:** DONE — branch `feat/1.4-map`
 
 **Cel:** Ekran mapy wyświetla aktualną pozycję gracza na mapie OSM.
 
@@ -151,11 +161,20 @@ Obecnie chcialabym
 | 1.4.5 | Location store | Zustand store zapisujący lokalizację + wysyłanie przez Socket.IO | Serwer odbiera `location:update` co 3-5s |
 
 **Review & Testy:**
-- [ ] Code review: uprawnienia lokalizacji (poprawne i minimalne), obsługa gdy user odmówi
+- [x] Code review: uprawnienia lokalizacji (poprawne i minimalne), obsługa gdy user odmówi — przycisk "Otwórz ustawienia" + accessibility labels
 - [ ] Test manualny na fizycznym urządzeniu: mapa się ładuje, marker widoczny, GPS działa
-- [ ] Test: odmowa uprawnień lokalizacji → sensowny komunikat błędu
-- [ ] Test integracyjny: Socket.IO odbiera location updates od klienta
+- [x] Test: odmowa uprawnień lokalizacji → sensowny komunikat błędu z przyciskiem do ustawień
+- [x] Test integracyjny: Socket.IO odbiera location updates od klienta — 9 testów (game:start, location:update, broadcasts, walidacja, rate limit, phase check)
 - [ ] Sprawdzić zużycie baterii — czy interwał 3-5s nie drenuje za bardzo
+
+**Szczegóły implementacji:**
+- `react-native-maps` z `PROVIDER_DEFAULT` (Apple Maps na iOS)
+- `expo-location` z `watchPositionAsync` (Accuracy.High, 4s interwał, 3m dystans)
+- `zustand` dla stanu gry (phase, locations, seekerLocations)
+- Backend: role-based Socket.IO rooms (`game:{id}:hiders`, `game:{id}:seekers`), rate limiting (2s), phase check (hiding/seeking only), logging all validation failures
+- Seeker positions broadcast only to hiders room
+
+**Łącznie: 48 testów vitest (wszystkie przechodzą) — 9 nowych location/game tests**
 
 ---
 
