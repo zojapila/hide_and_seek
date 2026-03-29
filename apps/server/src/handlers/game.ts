@@ -2,6 +2,7 @@ import type { Server, Socket } from "socket.io";
 import type { ServerToClientEvents, ClientToServerEvents } from "@hideseek/shared";
 import { query } from "../db/client";
 import { startHidingTimer, getTimerState } from "../services/timer";
+import { prefetchStops } from "../services/overpass";
 import type { FastifyBaseLogger } from "fastify";
 
 interface PlayerRow {
@@ -153,6 +154,11 @@ export function registerGameHandlers(
 
     // Start server-side countdown timer
     startHidingTimer(io, sd.gameId, hide_time_minutes, log);
+
+    // Pre-fetch stops from Overpass so they're cached when clients request them
+    prefetchStops(sd.gameId, lat, lng, log).catch((err) => {
+      log.error(`Failed to pre-fetch stops for game ${sd.gameId}: ${err}`);
+    });
   });
 
   // ── location:update — player sends their GPS position ──

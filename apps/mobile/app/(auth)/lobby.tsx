@@ -102,16 +102,14 @@ export default function LobbyScreen() {
       Alert.alert("Błąd", "Połączenie z serwerem utracone. Spróbuj ponownie.");
       return;
     }
-    // try {
-    //   const loc = await Location.getCurrentPositionAsync({
-    //     accuracy: Location.Accuracy.High,
-    //   });
-    //   socket.emit("game:start", { lat: loc.coords.latitude, lng: loc.coords.longitude });
-    // } catch {
-    //   Alert.alert("Błąd", "Nie udało się pobrać lokalizacji. Włącz GPS i spróbuj ponownie.");
-    // }
-    // TODO: remove hardcoded coords before production
-    socket.emit("game:start", { lat: 50.0614, lng: 19.9383 });
+    try {
+      const loc = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+      socket.emit("game:start", { lat: loc.coords.latitude, lng: loc.coords.longitude });
+    } catch {
+      Alert.alert("Błąd", "Nie udało się pobrać lokalizacji. Włącz GPS i spróbuj ponownie.");
+    }
   }, []);
 
   const renderPlayer = ({ item }: { item: Player }) => (

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from "react";
-import { View, Text, StyleSheet, Pressable, Linking } from "react-native";
+import { View, Text, StyleSheet, Pressable, Linking, AppState } from "react-native";
 import MapView, { Marker, Callout, PROVIDER_GOOGLE } from "react-native-maps";
 import { useLocation } from "../../hooks/useLocation";
 import { useGameStore } from "../../stores/gameStore";
@@ -81,6 +81,21 @@ export default function MapScreen() {
       socket.off("timer:sync", handleTimerSync);
     };
   }, [setSecondsLeft, setPhase]);
+
+  // Re-sync timer when app returns from background
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") {
+        const socket = getSocket();
+        const { gameCode: code, playerName: name } = useGameStore.getState();
+        if (socket.connected && code && name) {
+          // Re-join room — server will emit timer:sync with current state
+          socket.emit("game:join", { gameCode: code, playerName: name });
+        }
+      }
+    });
+    return () => subscription.remove();
+  }, []);
 
   // Fetch stops when game enters hiding/seeking phase
   useEffect(() => {
