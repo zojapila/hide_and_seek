@@ -72,11 +72,21 @@ out center;`;
  * Deduplicate stops with the same name that are within `thresholdM` metres
  * of each other by averaging their coordinates into a single central point.
  */
-export function deduplicateStops(stops: RawStop[], thresholdM = 150): RawStop[] {
+/** Strip trailing platform suffixes: " 01", " 02", " (01)", " [A]" etc. */
+function normalizeName(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/[\s_-]+\(?[0-9]+[a-z]?\)?$/i, "")  // "Teatr Słowackiego 01" → "teatr słowackiego"
+    .replace(/[\s_-]+[a-z]$/i, "")                // "Rondo Mogilskie A" → "rondo mogilskie"
+    .trim();
+}
+
+export function deduplicateStops(stops: RawStop[], thresholdM = 300): RawStop[] {
   const groups: Map<string, RawStop[]> = new Map();
 
   for (const stop of stops) {
-    const key = stop.name.toLowerCase().trim();
+    const key = normalizeName(stop.name);
     const group = groups.get(key);
     if (!group) {
       groups.set(key, [stop]);
@@ -98,9 +108,11 @@ export function deduplicateStops(stops: RawStop[], thresholdM = 150): RawStop[] 
   for (const members of groups.values()) {
     const avgLat = members.reduce((s, m) => s + m.lat, 0) / members.length;
     const avgLng = members.reduce((s, m) => s + m.lng, 0) / members.length;
+    // Use the shortest name as the canonical name (base name without platform suffix)
+    const canonical = members.reduce((a, b) => (a.name.length <= b.name.length ? a : b));
     result.push({
-      osmId: members[0].osmId, // keep first osm_id as representative
-      name: members[0].name,
+      osmId: members[0].osmId,
+      name: canonical.name,
       lat: avgLat,
       lng: avgLng,
     });
