@@ -89,10 +89,17 @@ export function registerGameHandlers(
   });
 
   // ── game:start — creator starts the game ──
-  socket.on("game:start", async () => {
+  socket.on("game:start", async (data) => {
     const sd = socket.data as SocketData;
     if (!sd?.gameId || !sd?.playerId) {
       log.warn(`Socket ${socket.id}: game:start without game or player context`);
+      return;
+    }
+
+    const lat = data?.lat;
+    const lng = data?.lng;
+    if (typeof lat !== "number" || typeof lng !== "number" || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+      log.warn(`Socket ${socket.id}: game:start missing or invalid location`);
       return;
     }
 
@@ -114,10 +121,14 @@ export function registerGameHandlers(
       return;
     }
 
-    // Atomically transition to hiding phase only if game is still waiting
+    // Atomically transition to hiding phase and set center_point
     const updateResult = await query(
-      "UPDATE games SET status = 'hiding', started_at = NOW() WHERE id = $1 AND status = 'waiting'",
-      [sd.gameId],
+      `UPDATE games
+       SET status = 'hiding',
+           started_at = NOW(),
+           center_point = ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography
+       WHERE id = $1 AND status = 'waiting'`,
+      [sd.gameId, lng, lat],
     );
 
     if (updateResult.rowCount === 0) {

@@ -126,18 +126,19 @@ describe("game:start", () => {
     const { client: creator, gameCode } = await setupPlayer("hider", "Creator");
     const { client: joiner } = await setupPlayer("seeker", "Joiner", { gameCode, otherClient: creator });
 
-    creator.emit("game:start");
+    creator.emit("game:start", { lat: 50.0614, lng: 19.9383 });
 
     // Wait for the async handler to process
     await new Promise((r) => setTimeout(r, 500));
 
     // Verify DB was updated
-    const dbResult = await query<{ status: string; started_at: string | null }>(
-      "SELECT status, started_at FROM games WHERE code = $1",
+    const dbResult = await query<{ status: string; started_at: string | null; center_lat: number | null }>(
+      "SELECT status, started_at, ST_Y(center_point::geometry) as center_lat FROM games WHERE code = $1",
       [gameCode],
     );
     expect(dbResult.rows[0].status).toBe("hiding");
     expect(dbResult.rows[0].started_at).not.toBeNull();
+    expect(dbResult.rows[0].center_lat).toBeCloseTo(50.0614, 4);
 
     creator.disconnect();
     joiner.disconnect();
@@ -150,7 +151,7 @@ describe("game:start", () => {
     await pool.query("UPDATE games SET status = 'hiding' WHERE code = $1", [gameCode]);
 
     // Try to start again — should not crash, just silently fail
-    client.emit("game:start");
+    client.emit("game:start", { lat: 50.0, lng: 19.0 });
     await new Promise((r) => setTimeout(r, 200));
 
     const dbResult = await query<{ status: string; started_at: string | null }>(
@@ -167,7 +168,7 @@ describe("game:start", () => {
     const { client: joiner } = await setupPlayer("seeker", "Joiner", { gameCode, otherClient: creator });
 
     // Joiner (non-creator) tries to start
-    joiner.emit("game:start");
+    joiner.emit("game:start", { lat: 50.0, lng: 19.0 });
     await new Promise((r) => setTimeout(r, 300));
 
     // Game should still be waiting

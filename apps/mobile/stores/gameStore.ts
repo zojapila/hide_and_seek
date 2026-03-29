@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { GameStatus, Player } from "@hideseek/shared";
+import type { GameStatus, Player, Stop } from "@hideseek/shared";
 
 interface GameState {
   // Game metadata (set once at lobby → game transition)
@@ -18,6 +18,10 @@ interface GameState {
   // Other seekers' locations (visible to hiders)
   seekerLocations: Pick<Player, "id" | "name" | "currentLocation">[];
 
+  // Stops (bus/tram stops from Overpass)
+  stops: Stop[];
+  showStops: boolean;
+
   // Actions
   setGameInfo: (info: {
     gameId: string;
@@ -29,6 +33,8 @@ interface GameState {
   setPhase: (phase: GameStatus) => void;
   setMyLocation: (loc: { latitude: number; longitude: number }) => void;
   setSeekerLocations: (players: Pick<Player, "id" | "name" | "currentLocation">[]) => void;
+  setStops: (stops: Stop[]) => void;
+  toggleStops: () => void;
   reset: () => void;
 }
 
@@ -41,6 +47,8 @@ const initialState = {
   phase: "waiting" as GameStatus,
   myLocation: null,
   seekerLocations: [],
+  stops: [],
+  showStops: true,
 };
 
 export const useGameStore = create<GameState>((set) => ({
@@ -62,5 +70,7 @@ export const useGameStore = create<GameState>((set) => ({
       }
       return { seekerLocations: updated };
     }),
+  setStops: (stops) => set({ stops }),
+  toggleStops: () => set((state) => ({ showStops: !state.showStops })),
   reset: () => set(initialState),
 }));
