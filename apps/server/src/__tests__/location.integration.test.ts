@@ -263,6 +263,27 @@ describe("location:update", () => {
     seekerClient.disconnect();
   });
 
+  it("does not broadcast seeker locations during hiding phase", async () => {
+    const { gameCode, client: hiderClient } = await setupPlayer("hider", "HiderDuringHide");
+    const { client: seekerClient } = await setupPlayer("seeker", "SeekerDuringHide", { gameCode, otherClient: hiderClient });
+
+    // Game is in hiding phase
+    await pool.query("UPDATE games SET status = 'hiding' WHERE code = $1", [gameCode]);
+
+    let received = false;
+    hiderClient.on("location:seekers", () => {
+      received = true;
+    });
+
+    seekerClient.emit("location:update", { lat: 50.0614, lng: 19.9383 });
+    await new Promise((r) => setTimeout(r, 300));
+
+    expect(received).toBe(false);
+
+    hiderClient.disconnect();
+    seekerClient.disconnect();
+  });
+
   it("rejects location update in waiting phase", async () => {
     const { client, player, gameCode } = await setupPlayer("seeker", "WaitingPlayer");
 

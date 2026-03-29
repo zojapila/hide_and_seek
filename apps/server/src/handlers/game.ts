@@ -166,8 +166,8 @@ export function registerGameHandlers(
       [lng, lat, sd.playerId],
     );
 
-    // If this is a seeker, broadcast their position to hiders in the room
-    if (sd.playerRole === "seeker") {
+    // If this is a seeker AND the game is in seeking phase, broadcast position to hiders
+    if (sd.playerRole === "seeker" && status === "seeking") {
       // Gather all seekers' latest locations for this game
       const seekers = await query<{
         id: string;
