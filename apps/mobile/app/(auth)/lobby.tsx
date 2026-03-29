@@ -8,6 +8,7 @@ import {
   Alert,
 } from "react-native";
 import { useLocalSearchParams, router } from "expo-router";
+import * as Location from "expo-location";
 import { api } from "../../lib/api";
 import { getSocket } from "../../lib/socket";
 import { useGameStore } from "../../stores/gameStore";
@@ -95,13 +96,22 @@ export default function LobbyScreen() {
     };
   }, [params.code, params.playerName, params.playerId, params.playerRole]);
 
-  const handleStart = useCallback(() => {
+  const handleStart = useCallback(async () => {
     const socket = getSocket();
     if (!socket.connected) {
       Alert.alert("Błąd", "Połączenie z serwerem utracone. Spróbuj ponownie.");
       return;
     }
-    socket.emit("game:start");
+    // try {
+    //   const loc = await Location.getCurrentPositionAsync({
+    //     accuracy: Location.Accuracy.High,
+    //   });
+    //   socket.emit("game:start", { lat: loc.coords.latitude, lng: loc.coords.longitude });
+    // } catch {
+    //   Alert.alert("Błąd", "Nie udało się pobrać lokalizacji. Włącz GPS i spróbuj ponownie.");
+    // }
+    // TODO: remove hardcoded coords before production
+    socket.emit("game:start", { lat: 50.0614, lng: 19.9383 });
   }, []);
 
   const renderPlayer = ({ item }: { item: Player }) => (

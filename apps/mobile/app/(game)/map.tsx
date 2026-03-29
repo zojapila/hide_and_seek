@@ -1,9 +1,11 @@
 import { useEffect, useRef, useCallback } from "react";
 import { View, Text, StyleSheet, Pressable, Linking } from "react-native";
-import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
+import MapView, { Marker, Callout, PROVIDER_GOOGLE } from "react-native-maps";
 import { useLocation } from "../../hooks/useLocation";
 import { useGameStore } from "../../stores/gameStore";
 import { getSocket } from "../../lib/socket";
+import { api } from "../../lib/api";
+import type { Stop } from "@hideseek/shared";
 
 const LOCATION_EMIT_INTERVAL_MS = 4000;
 
@@ -16,6 +18,11 @@ export default function MapScreen() {
   const phase = useGameStore((s) => s.phase);
   const seekerLocations = useGameStore((s) => s.seekerLocations);
   const playerRole = useGameStore((s) => s.playerRole);
+  const gameCode = useGameStore((s) => s.gameCode);
+  const stops = useGameStore((s) => s.stops);
+  const showStops = useGameStore((s) => s.showStops);
+  const setStops = useGameStore((s) => s.setStops);
+  const toggleStops = useGameStore((s) => s.toggleStops);
 
   // Update store + emit location to server
   useEffect(() => {
@@ -52,6 +59,19 @@ export default function MapScreen() {
       socket.off("location:seekers", handleSeekerLocations);
     };
   }, []);
+
+  // Fetch stops when game enters hiding/seeking phase
+  useEffect(() => {
+    if (!gameCode) return;
+    if (phase !== "hiding" && phase !== "seeking") return;
+    if (stops.length > 0) return; // already loaded
+
+    api<Stop[]>(`/games/${gameCode}/stops`)
+      .then((data) => setStops(data))
+      .catch(() => {
+        /* stops will just not appear — non-critical */
+      });
+  }, [gameCode, phase, stops.length, setStops]);
 
   const handleRecenter = useCallback(() => {
     if (!location || !mapRef.current) return;
@@ -136,6 +156,26 @@ export default function MapScreen() {
                 />
               ),
           )}
+
+        {/* Stop markers */}
+        {showStops &&
+          stops.map((stop) => (
+            <Marker
+              key={stop.id}
+              coordinate={{
+                latitude: stop.location.lat,
+                longitude: stop.location.lng,
+              }}
+              pinColor="#f59e0b"
+              tracksViewChanges={false}
+            >
+              <Callout>
+                <View style={styles.callout}>
+                  <Text style={styles.calloutTitle}>🚏 {stop.name}</Text>
+                </View>
+              </Callout>
+            </Marker>
+          ))}
       </MapView>
 
       {/* Phase badge */}
@@ -157,6 +197,18 @@ export default function MapScreen() {
       >
         <Text style={styles.recenterText}>📌</Text>
       </Pressable>
+
+      {/* Toggle stops button */}
+      {stops.length > 0 && (
+        <Pressable
+          style={styles.toggleStopsButton}
+          onPress={toggleStops}
+          accessibilityRole="button"
+          accessibilityLabel={showStops ? "Ukryj przystanki" : "Pokaż przystanki"}
+        >
+          <Text style={styles.toggleStopsText}>{showStops ? "🚏 ✕" : "🚏"}</Text>
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -245,5 +297,33 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 16,
     fontWeight: "600",
+  },
+  callout: {
+    padding: 4,
+    minWidth: 120,
+  },
+  calloutTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#1f2937",
+  },
+  toggleStopsButton: {
+    position: "absolute",
+    bottom: 24,
+    left: 16,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#fff",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  toggleStopsText: {
+    fontSize: 20,
   },
 });

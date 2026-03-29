@@ -5,6 +5,7 @@ import type { ServerToClientEvents, ClientToServerEvents } from "@hideseek/share
 import { config } from "./config";
 import { testConnection, pool } from "./db/client";
 import { gameRoutes } from "./routes/games";
+import { stopRoutes } from "./routes/stops";
 import { registerGameHandlers } from "./handlers/game";
 
 async function main() {
@@ -26,6 +27,7 @@ async function main() {
 
   // Game routes
   await app.register(gameRoutes);
+  await app.register(stopRoutes);
 
   // Fastify error handler for validation errors
   app.setErrorHandler((error, _request, reply) => {
