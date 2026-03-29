@@ -25,6 +25,9 @@ interface GameState {
   // Timer
   secondsLeft: number | null;
 
+  // Chosen stop (hider only)
+  chosenStopId: string | null;
+
   // Actions
   setGameInfo: (info: {
     gameId: string;
@@ -39,6 +42,7 @@ interface GameState {
   setStops: (stops: Stop[]) => void;
   toggleStops: () => void;
   setSecondsLeft: (seconds: number | null) => void;
+  setChosenStopId: (stopId: string | null) => void;
   reset: () => void;
 }
 
@@ -54,6 +58,7 @@ const initialState = {
   stops: [],
   showStops: true,
   secondsLeft: null,
+  chosenStopId: null,
 };
 
 export const useGameStore = create<GameState>((set) => ({
@@ -78,5 +83,6 @@ export const useGameStore = create<GameState>((set) => ({
   setStops: (stops) => set({ stops }),
   toggleStops: () => set((state) => ({ showStops: !state.showStops })),
   setSecondsLeft: (seconds) => set({ secondsLeft: seconds }),
+  setChosenStopId: (stopId) => set({ chosenStopId: stopId }),
   reset: () => set(initialState),
 }));

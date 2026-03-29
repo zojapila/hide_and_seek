@@ -1,5 +1,5 @@
-import { useEffect, useRef, useCallback } from "react";
-import { View, Text, StyleSheet, Pressable, Linking, AppState } from "react-native";
+import { useEffect, useRef, useCallback, useState } from "react";
+import { View, Text, StyleSheet, Pressable, Linking, AppState, Alert } from "react-native";
 import MapView, { Marker, Callout, PROVIDER_GOOGLE } from "react-native-maps";
 import { useLocation } from "../../hooks/useLocation";
 import { useGameStore } from "../../stores/gameStore";
@@ -26,6 +26,9 @@ export default function MapScreen() {
   const setStops = useGameStore((s) => s.setStops);
   const toggleStops = useGameStore((s) => s.toggleStops);
   const setSecondsLeft = useGameStore((s) => s.setSecondsLeft);
+  const chosenStopId = useGameStore((s) => s.chosenStopId);
+  const setChosenStopId = useGameStore((s) => s.setChosenStopId);
+  const playerId = useGameStore((s) => s.playerId);
 
   // Update store + emit location to server
   useEffect(() => {
@@ -95,6 +98,38 @@ export default function MapScreen() {
       }
     });
     return () => subscription.remove();
+  }, []);
+
+  // Listen for stop chosen events
+  useEffect(() => {
+    const socket = getSocket();
+    const handleStopChosen = (data: { playerId: string; stopId: string; stopName: string }) => {
+      const myId = useGameStore.getState().playerId;
+      if (data.playerId === myId) {
+        setChosenStopId(data.stopId);
+      }
+    };
+    socket.on("game:stop_chosen", handleStopChosen);
+    return () => {
+      socket.off("game:stop_chosen", handleStopChosen);
+    };
+  }, [setChosenStopId]);
+
+  const handleChooseStop = useCallback((stop: Stop) => {
+    Alert.alert(
+      "Ukryj się tutaj?",
+      `Czy chcesz schować się na przystanku "${stop.name}"?`,
+      [
+        { text: "Anuluj", style: "cancel" },
+        {
+          text: "Tak, chowam się!",
+          onPress: () => {
+            const socket = getSocket();
+            socket.emit("game:choose_stop", { stopId: stop.id });
+          },
+        },
+      ],
+    );
   }, []);
 
   // Fetch stops when game enters hiding/seeking phase
@@ -203,12 +238,24 @@ export default function MapScreen() {
                 latitude: stop.location.lat,
                 longitude: stop.location.lng,
               }}
-              pinColor="#f59e0b"
+              pinColor={stop.id === chosenStopId ? "#16a34a" : "#f59e0b"}
               tracksViewChanges={false}
             >
-              <Callout>
+              <Callout
+                onPress={
+                  playerRole === "hider" && phase === "hiding" && !chosenStopId
+                    ? () => handleChooseStop(stop)
+                    : undefined
+                }
+              >
                 <View style={styles.callout}>
-                  <Text style={styles.calloutTitle}>🚏 {stop.name}</Text>
+                  <Text style={styles.calloutTitle}>
+                    🚏 {stop.name}
+                    {stop.id === chosenStopId ? " ✅" : ""}
+                  </Text>
+                  {playerRole === "hider" && phase === "hiding" && !chosenStopId && (
+                    <Text style={styles.calloutAction}>Kliknij, żeby się tu schować</Text>
+                  )}
                 </View>
               </Callout>
             </Marker>
@@ -346,6 +393,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
     color: "#1f2937",
+  },
+  calloutAction: {
+    fontSize: 12,
+    color: "#2563eb",
+    marginTop: 4,
+    fontWeight: "500",
   },
   toggleStopsButton: {
     position: "absolute",

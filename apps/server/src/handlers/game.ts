@@ -227,6 +227,64 @@ export function registerGameHandlers(
     }
   });
 
+  // ── game:choose_stop — hider selects a stop to hide at ──
+  socket.on("game:choose_stop", async (data) => {
+    const sd = socket.data as SocketData;
+    if (!sd?.gameId || !sd?.playerId) {
+      log.warn(`Socket ${socket.id}: game:choose_stop without game context`);
+      return;
+    }
+
+    if (sd.playerRole !== "hider") {
+      log.warn(`Socket ${socket.id}: game:choose_stop by non-hider`);
+      return;
+    }
+
+    const stopId = data?.stopId;
+    if (!stopId || typeof stopId !== "string") {
+      log.warn(`Socket ${socket.id}: game:choose_stop invalid stopId`);
+      return;
+    }
+
+    // Must be in hiding phase
+    const gameResult = await query<{ status: string }>(
+      "SELECT status FROM games WHERE id = $1",
+      [sd.gameId],
+    );
+    if (gameResult.rows[0]?.status !== "hiding") {
+      log.warn(`Socket ${socket.id}: game:choose_stop in phase "${gameResult.rows[0]?.status}"`);
+      return;
+    }
+
+    // Stop must belong to this game
+    const stopResult = await query<{ id: string; name: string }>(
+      "SELECT id, name FROM stops WHERE id = $1 AND game_id = $2",
+      [stopId, sd.gameId],
+    );
+    if (stopResult.rowCount === 0) {
+      log.warn(`Socket ${socket.id}: game:choose_stop — stop ${stopId} not in game ${sd.gameId}`);
+      return;
+    }
+
+    // Update player's chosen stop
+    await query(
+      "UPDATE players SET chosen_stop_id = $1 WHERE id = $2",
+      [stopId, sd.playerId],
+    );
+
+    const room = `game:${sd.gameId}`;
+    const stopName = stopResult.rows[0].name;
+
+    // Notify all players in the game
+    io.to(room).emit("game:stop_chosen", {
+      playerId: sd.playerId,
+      stopId,
+      stopName,
+    });
+
+    log.info(`Player "${sd.playerName}" chose stop "${stopName}" in game ${sd.gameId}`);
+  });
+
   socket.on("disconnect", () => {
     const sd = socket.data as SocketData;
     if (sd?.playerId) {

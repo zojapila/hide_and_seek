@@ -72,6 +72,9 @@ async function transitionToSeeking(
   gameId: string,
   log: FastifyBaseLogger,
 ): Promise<void> {
+  // Auto-assign stops for hiders who didn't choose
+  await autoAssignStops(io, gameId, log);
+
   const result = await query(
     `UPDATE games
      SET status = 'seeking', seeking_started_at = NOW()
@@ -88,4 +91,73 @@ async function transitionToSeeking(
   io.to(room).emit("game:phase_change", { status: "seeking" });
   io.to(room).emit("timer:sync", { phase: "seeking", remainingMs: 0 });
   log.info(`Game ${gameId} transitioned to seeking phase`);
+}
+
+/**
+ * For each hider without a chosen stop, pick the closest stop
+ * to their current location and assign it.
+ */
+async function autoAssignStops(
+  io: Server<ClientToServerEvents, ServerToClientEvents>,
+  gameId: string,
+  log: FastifyBaseLogger,
+): Promise<void> {
+  // Find hiders who haven't chosen a stop
+  const unchosenResult = await query<{ id: string; name: string; current_location: string | null }>(
+    `SELECT id, name, ST_AsGeoJSON(current_location)::text AS current_location
+     FROM players
+     WHERE game_id = $1 AND role = 'hider' AND chosen_stop_id IS NULL`,
+    [gameId],
+  );
+
+  if (unchosenResult.rowCount === 0) return;
+
+  const room = `game:${gameId}`;
+
+  for (const hider of unchosenResult.rows) {
+    let stopId: string | null = null;
+    let stopName: string | null = null;
+
+    if (hider.current_location) {
+      // Find nearest stop by distance
+      const geo = JSON.parse(hider.current_location);
+      const lng = geo.coordinates[0];
+      const lat = geo.coordinates[1];
+
+      const nearestResult = await query<{ id: string; name: string }>(
+        `SELECT id, name FROM stops
+         WHERE game_id = $1
+         ORDER BY location <-> ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography
+         LIMIT 1`,
+        [gameId, lng, lat],
+      );
+
+      if (nearestResult.rowCount! > 0) {
+        stopId = nearestResult.rows[0].id;
+        stopName = nearestResult.rows[0].name;
+      }
+    }
+
+    if (!stopId) {
+      // Fallback: pick a random stop in the game
+      const randomResult = await query<{ id: string; name: string }>(
+        `SELECT id, name FROM stops WHERE game_id = $1 ORDER BY RANDOM() LIMIT 1`,
+        [gameId],
+      );
+      if (randomResult.rowCount! > 0) {
+        stopId = randomResult.rows[0].id;
+        stopName = randomResult.rows[0].name;
+      }
+    }
+
+    if (stopId && stopName) {
+      await query("UPDATE players SET chosen_stop_id = $1 WHERE id = $2", [stopId, hider.id]);
+      io.to(room).emit("game:stop_chosen", {
+        playerId: hider.id,
+        stopId,
+        stopName,
+      });
+      log.info(`Auto-assigned stop "${stopName}" to hider "${hider.name}" in game ${gameId}`);
+    }
+  }
 }
