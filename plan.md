@@ -226,68 +226,116 @@ Obecnie chcialabym
 
 ### Epic 2.2: Faza chowania — timer i zmiana stanu gry
 
+**Status:** DONE — branch `feat/2.2-timer` (commit `d6f8496`)
+
 **Cel:** Po kliknięciu "Start" w lobby rozpoczyna się faza chowania z odliczaniem.
 
 | # | Story | Opis | DoD |
 |---|---|---|---|
 | 2.2.1 | Socket: game:start | Twórca gry emituje start → serwer zmienia status na `hiding`, zapisuje `started_at` | Wszyscy gracze w roomie dostają `game:phase_change` |
 | 2.2.2 | Timer serwerowy | Serwer liczy czas fazy chowania, emituje `timer:sync` co 1s | Klienci dostają pozostały czas |
-| 2.2.3 | Mobile: komponent Timer | Stały, widoczny timer u góry ekranu (lub floating) — aktualizowany z serwera | Pokazuje MM:SS, odlicza, widoczny na każdym ekranie gry |
+| 2.2.3 | Mobile: komponent Timer | Stały, widoczny timer u góry ekranu (floating) — aktualizowany z serwera | Pokazuje MM:SS, odlicza, widoczny na ekranie mapy |
 | 2.2.4 | Auto-przejście do szukania | Gdy timer dojdzie do 0 → serwer zmienia status na `seeking` | Wszyscy gracze dostają `game:phase_change` z nowym statusem |
 | 2.2.5 | Mobile: game state store | Zustand store śledzący fazę gry, synchronizowany z Socket events | Ekrany reagują na fazę (hiding → seeking): różne UI |
 | 2.2.6 | Mobile: ekran mapy per faza | W fazie `hiding`: chowający widzi przystanki + swój marker. W `waiting`: info "czekaj na start" | Kontekstowy UI zależny od roli i fazy gry |
 
 **Review & Testy:**
-- [ ] Code review: logika timera — sprawdzić synchronizację, drift, co gdy serwer się zrestartuje w trakcie
-- [ ] Test jednostkowy: timer service — czas startuje, odlicza, zmienia fazę na 0
-- [ ] Test integracyjny: start gry → timer działa → po X sekundach (zmniejszony na potrzeby testu) → faza zmienia się na `seeking`
+- [x] Code review: logika timera — try/catch w setInterval, emit order, test poprawki (player registration before game:start)
+- [x] Test jednostkowy: timer service — 5 testów (getTimerState null, getTimerState after start, emits every second, stopTimer clears, remainingMs decreases)
+- [x] Test integracyjny: start gry → timer:sync emitowany, reconnecting client gets timer:sync on game:join — 2 testy
 - [ ] Test manualny (2 urządzenia): start gry, timer widoczny i zsynchronizowany na obu
-- [ ] Test edge case: gracz rozłącza się w trakcie chowania → reconnect → timer wciąż poprawny
+- [x] Test edge case: gracz rozłącza się / apka w tle → reconenct → AppState listener re-emits game:join → timer resync
+
+**Szczegóły implementacji:**
+- `apps/server/src/services/timer.ts` — `startHidingTimer()`, `getTimerState()`, `stopTimer()`, `transitionToSeeking()`
+  - `Map<gameId, TimerEntry>` in-memory, `setInterval` co 1s, `endsAt = Date.now() + total`, oblicza remaining z wall clock (odporne na drift)
+  - `transitionToSeeking()` — atomowy UPDATE `SET status='seeking', seeking_started_at=NOW() WHERE status='hiding'`, emituje `game:phase_change` + `timer:sync{remainingMs:0}`
+  - try/catch w async setInterval callback żeby unhandled errors nie crashowały serwera
+- `apps/server/src/handlers/game.ts` — `game:start` zwraca `RETURNING hide_time_minutes`, wywołuje `startHidingTimer()`; `game:join` emituje `timer:sync` po `socket.join(room)` dla reconnecting clients
+- `apps/server/src/services/overpass.ts` — dodano `prefetchStops()` wywoływany przy `game:start` (przystanki gotowe zanim klient poprosi)
+- `apps/mobile/components/GameTimer.tsx` — floating overlay, `position: absolute, top: 16, zIndex: 10`, kolory: normal (dark), ≤60s (orange), ≤10s (red), label per faza (🙈/🔍)
+- `apps/mobile/stores/gameStore.ts` — dodane `secondsLeft: number | null`, `setSecondsLeft`
+- `apps/mobile/app/(game)/map.tsx` — `timer:sync` handler (`Math.ceil`), `AppState` listener re-emits `game:join` przy powrocie z tła
+- **69 testów vitest (wszystkie przechodzą) — 7 nowych timer tests**
 
 ---
 
 ### Epic 2.3: Wybór przystanku przez chowającego
 
-**Cel:** Chowający wybiera przystanek, przy którym się chowa. Jeśli czas mija — auto-wybór lub okno dialogowe.
+**Status:** DONE — branch `feat/2.3-hide-at-stop`
+
+**Cel:** Chowający wybiera przystanek, przy którym się chowa. Jeśli czas mija — auto-wybór najbliższego przystanku.
 
 | # | Story | Opis | DoD |
 |---|---|---|---|
-| 2.3.1 | Mobile: tap na przystanek | Chowający klika marker przystanku → "Chowam się tutaj?" z potwierdzeniem | Dialog z nazwą przystanku i przyciskiem potwierdź/anuluj |
-| 2.3.2 | REST: POST /games/:id/hide | Chowający potwierdza przystanek → zapis `chosen_stop_id` w `players` | Status gracza zaktualizowany, serwer wie gdzie jest |
-| 2.3.3 | Auto-detect bliskości | Po upływie timera: serwer sprawdza pozycję chowającego vs przystanki w promieniu | Lista przystanków w zasięgu (PostGIS ST_DWithin) |
-| 2.3.4 | Mobile: dialog multi-stop | Jeśli chowający jest w zasięgu >1 przystanku po upływie czasu → okno z wyborem | Lista przystanków z odległością, gracz musi wybrać |
-| 2.3.5 | Mobile: dialog single-stop | Jeśli dokładnie 1 przystanek w zasięgu → auto-przypisanie z powiadomieniem | Toast: "Przypisano do przystanku X" |
-| 2.3.6 | Edge case: brak przystanku | Chowający nie jest w zasięgu żadnego przystanku po upływie czasu | Wymuszenie: "musisz dotrzeć do przystanku!" z przedłużeniem 2 min lub komunikat |
+| 2.3.1 | Mobile: tap na przystanek | Chowający klika marker przystanku → "Ukryj się tutaj?" z potwierdzeniem | Dialog Alert z nazwą przystanku i przyciskiem potwierdź/anuluj |
+| 2.3.2 | Socket: game:choose_stop | Chowający potwierdza przystanek → socket emit → serwer zapisuje `chosen_stop_id` w `players` | DB zaktualizowana, broadcast `game:stop_chosen` do wszystkich |
+| 2.3.3 | Auto-assign przy transitionToSeeking | Po upływie timera: serwer sprawdza hiderów bez chosen_stop → przypisuje najbliższy (PostGIS `<->`) lub losowy | Każdy hider ma chosen_stop_id gdy zaczyna się faza seeking |
+| 2.3.4 | Mobile: UI stop wyboru | Callout z "Kliknij, żeby się tu schować" (tylko hider w hiding), wybrany stop zielony + ✅ | Wizualne rozróżnienie wybranego przystanku |
+| 2.3.5 | Shared types | Nowe socket events: `game:choose_stop` (C→S), `game:stop_chosen` + `game:force_choose` (S→C) | TypeScript types kompilują się bez błędów |
 
 **Review & Testy:**
-- [ ] Code review: logika PostGIS — sprawdzić zapytania ST_DWithin, indeksy, prawidłowy promień
-- [ ] Test jednostkowy: logika auto-detect (0, 1, N przystanków w zasięgu)
-- [ ] Test integracyjny: chowający → wybiera przystanek → DB zaktualizowana → GET /games/:code potwierdza
-- [ ] Test manualny: fizycznie przy przystanku → tap → potwierdź → przypisane poprawnie
-- [ ] Test edge case: chowający wybiera → potem próbuje zmienić (nie powinno być możliwe po potwierdzeniu)
+- [x] Code review: handler sprawdza role, fazę, przynależność stopu do gry — 6 walidacji
+- [x] Test integracyjny: hider wybiera przystanek → DB + broadcast — 5 testów
+- [x] Test: seeker nie może wybrać przystanku → chosen_stop_id pozostaje NULL
+- [x] Test: stop z innej gry odrzucony
+- [x] Test: wybór w fazie waiting odrzucony
+- [x] Test: broadcast do wszystkich graczy w grze
+- [ ] Test manualny: tap na marker → dialog → potwierdź → marker zmienia kolor na zielony
+
+**Szczegóły implementacji:**
+- `packages/shared/src/index.ts` — dodane `game:choose_stop` (ClientToServer), `game:stop_chosen` + `game:force_choose` (ServerToClient)
+- `apps/server/src/handlers/game.ts` — nowy handler `game:choose_stop`: waliduje rolę (hider), fazę (hiding), stop przynależy do gry → UPDATE + broadcast
+- `apps/server/src/services/timer.ts` — `transitionToSeeking()` wywołuje `autoAssignStops()` przed zmianą fazy:
+  - Znajduje hiderów bez chosen_stop (SQL)
+  - Dla każdego: znajdź najbliższy stop wg lokalizacji (`ORDER BY location <-> ST_MakePoint`)
+  - Fallback: losowy stop z gry
+  - Emituje `game:stop_chosen` dla każdego auto-przypisanego
+- `apps/mobile/stores/gameStore.ts` — dodane `chosenStopId: string | null`, `setChosenStopId`
+- `apps/mobile/app/(game)/map.tsx`:
+  - Listener `game:stop_chosen` → aktualizuje store
+  - `handleChooseStop()` → Alert.alert z potwierdzeniem → `game:choose_stop` emit
+  - Stop marker: zielony (#16a34a) gdy wybrany, żółty (#f59e0b) gdy nie
+  - Callout: "Kliknij, żeby się tu schować" (hider + hiding + !chosenStopId)
+- **74 testów vitest (wszystkie przechodzą) — 5 nowych choose-stop tests**
 
 ---
 
 ### Epic 2.4: Geofence — generowanie i wizualizacja
 
+**Status:** DONE — branch `feat/2.3-hide-at-stop`
+
 **Cel:** Po wyborze przystanku generowany jest geofence (koło X m). Chowający widzi go na mapie i nie może go opuścić.
 
 | # | Story | Opis | DoD |
 |---|---|---|---|
-| 2.4.1 | Backend: generowanie geofence | Po wyborze przystanku → `ST_Buffer(location, radius)` → zapis w `stops.geofence` | Polygon w DB, radius z konfiguracji gry |
-| 2.4.2 | REST: GET /games/:id/geofence | Zwraca geofence chowającego (polygon GeoJSON) | Poprawny GeoJSON, dostępny tylko w fazie `seeking` |
-| 2.4.3 | Mobile: GeofenceOverlay | Przezroczysty okrąg na mapie wokół przystanku | Widoczny, nie zasłania mapy, kolor rozróżnialny |
-| 2.4.4 | Hook useGeofence | Monitoruje pozycję chowającego vs granica geofence (Turf.js) | Oblicza dystans do krawędzi w czasie rzeczywistym |
-| 2.4.5 | Ostrzeżenie: zbliżanie do granicy | Wibracja + dźwięk + wizualny alert gdy <20m do krawędzi geofence | Stopniowane: 20m → lekkie ostrzeżenie, 5m → mocne |
-| 2.4.6 | Ostrzeżenie: poza geofence | Jeśli chowający przekroczy granicę → czerwony alert + powiadomienie | Wyraźne "WRÓĆ! Jesteś poza strefą!" |
+| 2.4.1 | Backend: generowanie geofence | Po wyborze przystanku → `ST_Buffer(location, radius)` → zapis w `stops.geofence` | Polygon w DB, radius z `games.geofence_radius_m` (default 200m) |
+| 2.4.2 | Shared: geofence w game:stop_chosen | Event `game:stop_chosen` rozszerzony o `geofence: { center, radiusM }` | TypeScript types kompilują się bez błędów |
+| 2.4.3 | Mobile: GeofenceOverlay | `Circle` z react-native-maps — zielone, półprzezroczyste koło na mapie | Widoczne po wyborze przystanku, nie zasłania mapy |
+| 2.4.4 | Hook useGeofence | Haversine distance do krawędzi geofence, 3 poziomy ostrzeżeń | approaching (<30m), critical (<10m), outside (<0m) |
+| 2.4.5 | Mobile: warning banner | Floating banner na dole: żółty (approaching), pomarańczowy (critical), czerwony (outside) | Wyraźne ostrzeżenie z dystansem |
+| 2.4.6 | Haptics | `expo-haptics` — Warning feedback (approaching), Error feedback (critical/outside) | Wibracja przy zmianie poziomu ostrzeżenia |
+| 2.4.7 | Auto-assign + geofence | `autoAssignStops()` w timer.ts też generuje geofence i emituje center+radiusM | Hiderzy bez wyboru też mają geofence po transitionToSeeking |
 
 **Review & Testy:**
-- [ ] Code review: klient-side Turf.js vs serwer PostGIS — czy nie ma desynchronizacji
-- [ ] Test jednostkowy: Turf.js — dystans do krawędzi koła, punkt wewnątrz/na zewnątrz
-- [ ] Test jednostkowy: backend ST_Buffer — generuje poprawny polygon
-- [ ] Test integracyjny: wybrany przystanek → geofence wygenerowany → dostępny przez API → overlay na mapie
-- [ ] Test manualny: fizycznie chodzić w okolicy — ostrzeżenia dźwiękowe odpalają się w odpowiednich momentach
-- [ ] Test edge case: brak GPS chwilowo → nie wyrzucać fałszywego alarmu "poza geofence"
+- [x] Code review: ST_Buffer generuje polygon, ON CONFLICT chroni przed duplikatami
+- [x] Test integracyjny: hider wybiera stop → `game:stop_chosen` zawiera `geofence.center` i `geofence.radiusM=200`
+- [x] Test: polygon w DB (`stops.geofence IS NOT NULL`) po wyborze
+- [ ] Test manualny: fizycznie chodzić w okolicy — Circle widoczny, ostrzeżenia na 30m/10m/0m
+- [ ] Test edge case: brak GPS chwilowo → hook zwraca `warning: "none"`
+
+**Szczegóły implementacji:**
+- `packages/shared/src/index.ts` — `game:stop_chosen` payload rozszerzony o `geofence: { center: { lat, lng }, radiusM }`
+- `apps/server/src/handlers/game.ts` — `game:choose_stop` handler: pobiera `geofence_radius_m` z games, `ST_Buffer(location, radius)` → UPDATE stops.geofence, emituje center+radiusM
+- `apps/server/src/services/timer.ts` — `autoAssignStops()` — też generuje geofence, pobiera stop lat/lng, emituje pełny payload
+- `apps/mobile/hooks/useGeofence.ts` — haversine distance, `distanceToEdge = radiusM - distToCenter`, 3 progi: 30m/10m/0m
+- `apps/mobile/stores/gameStore.ts` — dodane `geofenceCenter`, `geofenceRadiusM`, `setGeofence()`
+- `apps/mobile/app/(game)/map.tsx`:
+  - `Circle` overlay: zielone (`rgba(34,197,94,0.12)` fill, `0.6` stroke)
+  - Warning banner: absolute bottom:80, 3 kolory (żółty/pomarańczowy/czerwony)
+  - `expo-haptics`: `NotificationFeedbackType.Warning` (approaching), `.Error` (critical/outside)
+  - Listener `game:stop_chosen` aktualizuje store z `setGeofence(data.geofence.center, data.geofence.radiusM)`
+- **74 testów vitest (wszystkie przechodzą) — rozszerzone o geofence assercje**
 
 ---
 

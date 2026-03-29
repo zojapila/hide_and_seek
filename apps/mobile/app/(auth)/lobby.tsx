@@ -12,7 +12,8 @@ import * as Location from "expo-location";
 import { api } from "../../lib/api";
 import { getSocket } from "../../lib/socket";
 import { useGameStore } from "../../stores/gameStore";
-import type { Game, GameStatus, Player } from "@hideseek/shared";
+import { saveSession } from "../../lib/session";
+import type { Game, GameStatus, Player, PlayerRole } from "@hideseek/shared";
 
 interface GameWithPlayers extends Game {
   players: Player[];
@@ -29,16 +30,23 @@ export default function LobbyScreen() {
 
   const [game, setGame] = useState<Game | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
+  const [myRole, setMyRole] = useState<PlayerRole>((params.playerRole as PlayerRole) ?? "seeker");
   const isCreator = params.isCreator === "1";
   const gameRef = useRef<Game | null>(null);
 
-  // Fetch initial game state
+  // Fetch initial game state + save session
   useEffect(() => {
     api<GameWithPlayers>(`/games/${params.code}`)
       .then((data) => {
         setGame(data);
         setPlayers(data.players);
         gameRef.current = data;
+        saveSession({
+          gameCode: params.code!,
+          playerId: params.playerId!,
+          playerName: params.playerName!,
+          playerRole: myRole,
+        });
       })
       .catch((err) => {
         Alert.alert("Błąd", err instanceof Error ? err.message : "Nie udało się pobrać gry");
@@ -66,6 +74,21 @@ export default function LobbyScreen() {
       setPlayers((prev) => prev.filter((p) => p.id !== playerId));
     });
 
+    socket.on("game:role_changed", ({ playerId, role }) => {
+      setPlayers((prev) =>
+        prev.map((p) => (p.id === playerId ? { ...p, role } : p)),
+      );
+      if (playerId === params.playerId) {
+        setMyRole(role);
+        saveSession({
+          gameCode: params.code!,
+          playerId: params.playerId!,
+          playerName: params.playerName!,
+          playerRole: role,
+        });
+      }
+    });
+
     // Listen for game start → navigate to map
     socket.on("game:phase_change", ({ status }: { status: GameStatus }) => {
       if (status === "hiding") {
@@ -79,7 +102,7 @@ export default function LobbyScreen() {
             gameCode: params.code!,
             playerId: params.playerId!,
             playerName: params.playerName!,
-            playerRole: (params.playerRole as "hider" | "seeker") ?? "seeker",
+            playerRole: myRole,
           });
         }
         setPhase("hiding");
@@ -91,6 +114,7 @@ export default function LobbyScreen() {
     return () => {
       socket.off("game:player_joined");
       socket.off("game:player_left");
+      socket.off("game:role_changed");
       socket.off("game:phase_change");
       // Don't disconnect — socket is needed for the game screen
     };
@@ -112,20 +136,34 @@ export default function LobbyScreen() {
     }
   }, []);
 
-  const renderPlayer = ({ item }: { item: Player }) => (
-    <View style={styles.playerRow}>
-      <Text style={styles.playerIcon}>{item.role === "hider" ? "🙈" : "🔍"}</Text>
-      <View style={styles.playerInfo}>
-        <Text style={styles.playerName}>
-          {item.name}
-          {item.id === params.playerId ? " (ty)" : ""}
-        </Text>
-        <Text style={styles.playerRole}>
-          {item.role === "hider" ? "Chowający" : "Szukający"}
-        </Text>
+  const handleChangeRole = useCallback(() => {
+    const socket = getSocket();
+    const newRole = myRole === "hider" ? "seeker" : "hider";
+    socket.emit("game:change_role", { role: newRole });
+  }, [myRole]);
+
+  const renderPlayer = ({ item }: { item: Player }) => {
+    const isMe = item.id === params.playerId;
+    return (
+      <View style={styles.playerRow}>
+        <Text style={styles.playerIcon}>{item.role === "hider" ? "🙈" : "🔍"}</Text>
+        <View style={styles.playerInfo}>
+          <Text style={styles.playerName}>
+            {item.name}
+            {isMe ? " (ty)" : ""}
+          </Text>
+          <Text style={styles.playerRole}>
+            {item.role === "hider" ? "Chowający" : "Szukający"}
+          </Text>
+        </View>
+        {isMe && (
+          <Pressable style={styles.roleToggle} onPress={handleChangeRole}>
+            <Text style={styles.roleToggleText}>Zmień</Text>
+          </Pressable>
+        )}
       </View>
-    </View>
-  );
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -140,7 +178,8 @@ export default function LobbyScreen() {
       {game && (
         <View style={styles.settings}>
           <Text style={styles.settingText}>⏱ {game.hideTimeMinutes} min na chowanie</Text>
-          <Text style={styles.settingText}>📍 Geofence: {game.geofenceRadiusM}m</Text>
+          <Text style={styles.settingText}>� {game.seekTimeMinutes} min na szukanie</Text>
+          <Text style={styles.settingText}>�📍 Geofence: {game.geofenceRadiusM}m</Text>
           <Text style={styles.settingText}>🗺 Promień gry: {game.gameRadiusM}m</Text>
         </View>
       )}
@@ -242,6 +281,17 @@ const styles = StyleSheet.create({
   playerRole: {
     fontSize: 13,
     color: "#6b7280",
+  },
+  roleToggle: {
+    backgroundColor: "#e0e7ff",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  roleToggleText: {
+    color: "#4338ca",
+    fontSize: 13,
+    fontWeight: "600",
   },
   startButton: {
     backgroundColor: "#16a34a",

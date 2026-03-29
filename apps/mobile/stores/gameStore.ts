@@ -25,6 +25,13 @@ interface GameState {
   // Timer
   secondsLeft: number | null;
 
+  // Chosen stop (hider only)
+  chosenStopId: string | null;
+
+  // Geofence (hider only — set when stop is chosen)
+  geofenceCenter: { lat: number; lng: number } | null;
+  geofenceRadiusM: number | null;
+
   // Actions
   setGameInfo: (info: {
     gameId: string;
@@ -39,6 +46,8 @@ interface GameState {
   setStops: (stops: Stop[]) => void;
   toggleStops: () => void;
   setSecondsLeft: (seconds: number | null) => void;
+  setChosenStopId: (stopId: string | null) => void;
+  setGeofence: (center: { lat: number; lng: number }, radiusM: number) => void;
   reset: () => void;
 }
 
@@ -54,6 +63,9 @@ const initialState = {
   stops: [],
   showStops: true,
   secondsLeft: null,
+  chosenStopId: null,
+  geofenceCenter: null,
+  geofenceRadiusM: null,
 };
 
 export const useGameStore = create<GameState>((set) => ({
@@ -78,5 +90,7 @@ export const useGameStore = create<GameState>((set) => ({
   setStops: (stops) => set({ stops }),
   toggleStops: () => set((state) => ({ showStops: !state.showStops })),
   setSecondsLeft: (seconds) => set({ secondsLeft: seconds }),
+  setChosenStopId: (stopId) => set({ chosenStopId: stopId }),
+  setGeofence: (center, radiusM) => set({ geofenceCenter: center, geofenceRadiusM: radiusM }),
   reset: () => set(initialState),
 }));

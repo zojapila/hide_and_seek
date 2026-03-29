@@ -10,8 +10,13 @@ function formatTime(totalSeconds: number): string {
 export function GameTimer() {
   const secondsLeft = useGameStore((s) => s.secondsLeft);
   const phase = useGameStore((s) => s.phase);
+  const playerRole = useGameStore((s) => s.playerRole);
+  const chosenStopId = useGameStore((s) => s.chosenStopId);
 
   if (secondsLeft === null || (phase !== "hiding" && phase !== "seeking")) return null;
+
+  // Hider who already chose a stop doesn't need the timer
+  if (playerRole === "hider" && chosenStopId && phase === "hiding") return null;
 
   const isUrgent = secondsLeft <= 60;
   const isCritical = secondsLeft <= 10;
@@ -32,7 +37,7 @@ const styles = StyleSheet.create({
   container: {
     position: "absolute",
     top: 16,
-    alignSelf: "center",
+    right: 16,
     backgroundColor: "rgba(0,0,0,0.75)",
     borderRadius: 12,
     paddingHorizontal: 20,

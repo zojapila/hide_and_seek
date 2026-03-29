@@ -1,9 +1,12 @@
-import { useEffect, useRef, useCallback } from "react";
-import { View, Text, StyleSheet, Pressable, Linking, AppState } from "react-native";
-import MapView, { Marker, Callout, PROVIDER_GOOGLE } from "react-native-maps";
+import { useEffect, useRef, useCallback, useState } from "react";
+import { View, Text, StyleSheet, Pressable, Linking, AppState, Alert } from "react-native";
+import MapView, { Marker, Callout, Circle, PROVIDER_GOOGLE } from "react-native-maps";
+import * as Haptics from "expo-haptics";
 import { useLocation } from "../../hooks/useLocation";
 import { useGameStore } from "../../stores/gameStore";
+import { useGeofence, type GeofenceWarning } from "../../hooks/useGeofence";
 import { getSocket } from "../../lib/socket";
+import { clearSession } from "../../lib/session";
 import { api } from "../../lib/api";
 import { GameTimer } from "../../components/GameTimer";
 import type { Stop } from "@hideseek/shared";
@@ -26,6 +29,15 @@ export default function MapScreen() {
   const setStops = useGameStore((s) => s.setStops);
   const toggleStops = useGameStore((s) => s.toggleStops);
   const setSecondsLeft = useGameStore((s) => s.setSecondsLeft);
+  const chosenStopId = useGameStore((s) => s.chosenStopId);
+  const setChosenStopId = useGameStore((s) => s.setChosenStopId);
+  const playerId = useGameStore((s) => s.playerId);
+  const geofenceCenter = useGameStore((s) => s.geofenceCenter);
+  const geofenceRadiusM = useGameStore((s) => s.geofenceRadiusM);
+  const setGeofence = useGameStore((s) => s.setGeofence);
+
+  const { distanceToEdge, warning } = useGeofence();
+  const lastWarningRef = useRef<GeofenceWarning>("none");
 
   // Update store + emit location to server
   useEffect(() => {
@@ -74,6 +86,11 @@ export default function MapScreen() {
       if (data.phase === "seeking") {
         setPhase("seeking");
       }
+      if (data.phase === "finished") {
+        setPhase("finished");
+        setSecondsLeft(null);
+        clearSession();
+      }
     };
 
     socket.on("timer:sync", handleTimerSync);
@@ -97,17 +114,90 @@ export default function MapScreen() {
     return () => subscription.remove();
   }, []);
 
-  // Fetch stops when game enters hiding/seeking phase
+  // Listen for stop chosen events
+  useEffect(() => {
+    const socket = getSocket();
+    const handleStopChosen = (data: {
+      playerId: string;
+      stopId: string;
+      stopName: string;
+      geofence: { center: { lat: number; lng: number }; radiusM: number };
+    }) => {
+      const myId = useGameStore.getState().playerId;
+      if (data.playerId === myId) {
+        setChosenStopId(data.stopId);
+        setGeofence(data.geofence.center, data.geofence.radiusM);
+      }
+    };
+    socket.on("game:stop_chosen", handleStopChosen);
+    return () => {
+      socket.off("game:stop_chosen", handleStopChosen);
+    };
+  }, [setChosenStopId, setGeofence]);
+
+  const handleChooseStop = useCallback((stop: Stop) => {
+    Alert.alert(
+      "Ukryj się tutaj?",
+      `Czy chcesz schować się na przystanku "${stop.name}"?`,
+      [
+        { text: "Anuluj", style: "cancel" },
+        {
+          text: "Tak, chowam się!",
+          onPress: () => {
+            const socket = getSocket();
+            socket.emit("game:choose_stop", { stopId: stop.id });
+          },
+        },
+      ],
+    );
+  }, []);
+
+  // Haptic feedback when geofence warning level changes
+  useEffect(() => {
+    if (warning === lastWarningRef.current) return;
+    lastWarningRef.current = warning;
+
+    if (warning === "approaching") {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    } else if (warning === "critical" || warning === "outside") {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    }
+  }, [warning]);
+
+  // Fetch stops when game enters hiding/seeking phase (with retry)
   useEffect(() => {
     if (!gameCode) return;
     if (phase !== "hiding" && phase !== "seeking") return;
     if (stops.length > 0) return; // already loaded
 
-    api<Stop[]>(`/games/${gameCode}/stops`)
-      .then((data) => setStops(data))
-      .catch(() => {
-        /* stops will just not appear — non-critical */
-      });
+    let cancelled = false;
+    let attempt = 0;
+
+    const fetchStops = () => {
+      api<Stop[]>(`/games/${gameCode}/stops`)
+        .then((data) => {
+          if (!cancelled && data.length > 0) {
+            setStops(data);
+          } else if (!cancelled && attempt < 3) {
+            // Stops not ready yet (prefetch in progress) — retry
+            attempt++;
+            setTimeout(fetchStops, 2000);
+          }
+        })
+        .catch(() => {
+          if (!cancelled && attempt < 3) {
+            attempt++;
+            setTimeout(fetchStops, 2000);
+          }
+        });
+    };
+
+    // Wait a moment for prefetch to complete
+    const timer = setTimeout(fetchStops, 1000);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [gameCode, phase, stops.length, setStops]);
 
   const handleRecenter = useCallback(() => {
@@ -203,17 +293,65 @@ export default function MapScreen() {
                 latitude: stop.location.lat,
                 longitude: stop.location.lng,
               }}
-              pinColor="#f59e0b"
+              pinColor={stop.id === chosenStopId ? "#16a34a" : "#f59e0b"}
               tracksViewChanges={false}
             >
-              <Callout>
+              <Callout
+                onPress={
+                  playerRole === "hider" && phase === "hiding" && !chosenStopId
+                    ? () => handleChooseStop(stop)
+                    : undefined
+                }
+              >
                 <View style={styles.callout}>
-                  <Text style={styles.calloutTitle}>🚏 {stop.name}</Text>
+                  <Text style={styles.calloutTitle}>
+                    🚏 {stop.name}
+                    {stop.id === chosenStopId ? " ✅" : ""}
+                  </Text>
+                  {playerRole === "hider" && phase === "hiding" && !chosenStopId && (
+                    <Text style={styles.calloutAction}>Kliknij, żeby się tu schować</Text>
+                  )}
                 </View>
               </Callout>
             </Marker>
           ))}
+
+        {/* Geofence circle overlay (hider only) */}
+        {playerRole === "hider" && geofenceCenter && geofenceRadiusM && (
+          <Circle
+            center={{
+              latitude: geofenceCenter.lat,
+              longitude: geofenceCenter.lng,
+            }}
+            radius={geofenceRadiusM}
+            fillColor="rgba(34, 197, 94, 0.12)"
+            strokeColor="rgba(34, 197, 94, 0.6)"
+            strokeWidth={2}
+          />
+        )}
       </MapView>
+
+      {/* Geofence warning banner */}
+      {playerRole === "hider" && warning !== "none" && (
+        <View
+          style={[
+            styles.warningBanner,
+            warning === "outside"
+              ? styles.warningOutside
+              : warning === "critical"
+                ? styles.warningCritical
+                : styles.warningApproaching,
+          ]}
+        >
+          <Text style={styles.warningText}>
+            {warning === "outside"
+              ? "⚠️ WRÓĆ! Jesteś poza strefą!"
+              : warning === "critical"
+                ? `⚠️ Uwaga! ${Math.round(distanceToEdge ?? 0)}m do granicy!`
+                : `📍 Zbliżasz się do granicy (${Math.round(distanceToEdge ?? 0)}m)`}
+          </Text>
+        </View>
+      )}
 
       {/* Phase badge */}
       <View style={styles.phaseBadge}>
@@ -347,6 +485,12 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#1f2937",
   },
+  calloutAction: {
+    fontSize: 12,
+    color: "#2563eb",
+    marginTop: 4,
+    fontWeight: "500",
+  },
   toggleStopsButton: {
     position: "absolute",
     bottom: 24,
@@ -365,5 +509,33 @@ const styles = StyleSheet.create({
   },
   toggleStopsText: {
     fontSize: 20,
+  },
+  warningBanner: {
+    position: "absolute",
+    bottom: 80,
+    alignSelf: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 6,
+  },
+  warningApproaching: {
+    backgroundColor: "#fbbf24",
+  },
+  warningCritical: {
+    backgroundColor: "#f97316",
+  },
+  warningOutside: {
+    backgroundColor: "#ef4444",
+  },
+  warningText: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "700",
+    textAlign: "center",
   },
 });

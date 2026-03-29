@@ -49,6 +49,42 @@ export function startHidingTimer(
 }
 
 /**
+ * Start the seeking-phase countdown for a game.
+ * Emits `timer:sync` every second.  When it expires the game finishes.
+ */
+function startSeekingTimer(
+  io: Server<ClientToServerEvents, ServerToClientEvents>,
+  gameId: string,
+  seekTimeMinutes: number,
+  log: FastifyBaseLogger,
+): void {
+  stopTimer(gameId);
+
+  const totalMs = seekTimeMinutes * 60 * 1000;
+  const endsAt = Date.now() + totalMs;
+  const room = `game:${gameId}`;
+
+  const intervalId = setInterval(async () => {
+    const remainingMs = Math.max(0, endsAt - Date.now());
+
+    if (remainingMs <= 0) {
+      stopTimer(gameId);
+      try {
+        await finishGame(io, gameId, log);
+      } catch (err) {
+        log.error(`Timer: failed to finish game ${gameId}: ${err}`);
+      }
+      return;
+    }
+
+    io.to(room).emit("timer:sync", { phase: "seeking", remainingMs });
+  }, 1000);
+
+  activeTimers.set(gameId, { intervalId, endsAt, phase: "seeking" });
+  log.info(`Seeking timer started for game ${gameId} — ${seekTimeMinutes} min`);
+}
+
+/**
  * Returns current timer state for a game (for reconnecting clients).
  * Returns null if no timer is running.
  */
@@ -72,10 +108,14 @@ async function transitionToSeeking(
   gameId: string,
   log: FastifyBaseLogger,
 ): Promise<void> {
-  const result = await query(
+  // Auto-assign stops for hiders who didn't choose
+  await autoAssignStops(io, gameId, log);
+
+  const result = await query<{ seek_time_minutes: number }>(
     `UPDATE games
      SET status = 'seeking', seeking_started_at = NOW()
-     WHERE id = $1 AND status = 'hiding'`,
+     WHERE id = $1 AND status = 'hiding'
+     RETURNING seek_time_minutes`,
     [gameId],
   );
 
@@ -84,8 +124,134 @@ async function transitionToSeeking(
     return;
   }
 
+  const { seek_time_minutes } = result.rows[0];
   const room = `game:${gameId}`;
   io.to(room).emit("game:phase_change", { status: "seeking" });
-  io.to(room).emit("timer:sync", { phase: "seeking", remainingMs: 0 });
+
+  // Start seeking countdown
+  startSeekingTimer(io, gameId, seek_time_minutes, log);
   log.info(`Game ${gameId} transitioned to seeking phase`);
+}
+
+async function finishGame(
+  io: Server<ClientToServerEvents, ServerToClientEvents>,
+  gameId: string,
+  log: FastifyBaseLogger,
+): Promise<void> {
+  const result = await query(
+    `UPDATE games SET status = 'finished', finished_at = NOW()
+     WHERE id = $1 AND status = 'seeking'`,
+    [gameId],
+  );
+
+  if (result.rowCount === 0) {
+    log.warn(`Timer: could not finish game ${gameId} (already done?)`);
+    return;
+  }
+
+  const room = `game:${gameId}`;
+  io.to(room).emit("game:phase_change", { status: "finished" });
+  io.to(room).emit("timer:sync", { phase: "finished", remainingMs: 0 });
+  log.info(`Game ${gameId} finished — seeking time expired`);
+}
+
+/**
+ * For each hider without a chosen stop, pick the closest stop
+ * to their current location and assign it.
+ */
+async function autoAssignStops(
+  io: Server<ClientToServerEvents, ServerToClientEvents>,
+  gameId: string,
+  log: FastifyBaseLogger,
+): Promise<void> {
+  // Get geofence radius from game config
+  const gameResult = await query<{ geofence_radius_m: number }>(
+    "SELECT geofence_radius_m FROM games WHERE id = $1",
+    [gameId],
+  );
+  const geofenceRadiusM = gameResult.rows[0]?.geofence_radius_m ?? 200;
+
+  // Find hiders who haven't chosen a stop
+  const unchosenResult = await query<{ id: string; name: string; current_location: string | null }>(
+    `SELECT id, name, ST_AsGeoJSON(current_location)::text AS current_location
+     FROM players
+     WHERE game_id = $1 AND role = 'hider' AND chosen_stop_id IS NULL`,
+    [gameId],
+  );
+
+  if (unchosenResult.rowCount === 0) return;
+
+  const room = `game:${gameId}`;
+
+  for (const hider of unchosenResult.rows) {
+    let stopId: string | null = null;
+    let stopName: string | null = null;
+    let stopLat: number | null = null;
+    let stopLng: number | null = null;
+
+    if (hider.current_location) {
+      // Find nearest stop by distance
+      const geo = JSON.parse(hider.current_location);
+      const lng = geo.coordinates[0];
+      const lat = geo.coordinates[1];
+
+      const nearestResult = await query<{ id: string; name: string; lat: number; lng: number }>(
+        `SELECT id, name,
+                ST_Y(location::geometry) as lat,
+                ST_X(location::geometry) as lng
+         FROM stops
+         WHERE game_id = $1
+         ORDER BY location <-> ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography
+         LIMIT 1`,
+        [gameId, lng, lat],
+      );
+
+      if (nearestResult.rowCount! > 0) {
+        const s = nearestResult.rows[0];
+        stopId = s.id;
+        stopName = s.name;
+        stopLat = s.lat;
+        stopLng = s.lng;
+      }
+    }
+
+    if (!stopId) {
+      // Fallback: pick a random stop in the game
+      const randomResult = await query<{ id: string; name: string; lat: number; lng: number }>(
+        `SELECT id, name,
+                ST_Y(location::geometry) as lat,
+                ST_X(location::geometry) as lng
+         FROM stops WHERE game_id = $1 ORDER BY RANDOM() LIMIT 1`,
+        [gameId],
+      );
+      if (randomResult.rowCount! > 0) {
+        const s = randomResult.rows[0];
+        stopId = s.id;
+        stopName = s.name;
+        stopLat = s.lat;
+        stopLng = s.lng;
+      }
+    }
+
+    if (stopId && stopName && stopLat != null && stopLng != null) {
+      // Generate geofence polygon
+      await query(
+        `UPDATE stops SET geofence = ST_Buffer(location, $1)
+         WHERE id = $2 AND geofence IS NULL`,
+        [geofenceRadiusM, stopId],
+      );
+
+      await query("UPDATE players SET chosen_stop_id = $1 WHERE id = $2", [stopId, hider.id]);
+      io.to(room).emit("game:stop_chosen", {
+        playerId: hider.id,
+        stopId,
+        stopName,
+        geofence: {
+          center: { lat: stopLat, lng: stopLng },
+          radiusM: geofenceRadiusM,
+        },
+      });
+      log.info(`Auto-assigned stop "${stopName}" to hider "${hider.name}" in game ${gameId} (geofence ${geofenceRadiusM}m)`);
+    }
+  }
 }

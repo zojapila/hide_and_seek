@@ -6,6 +6,7 @@ describe("validateCreateGame", () => {
     const result = validateCreateGame({});
     expect(result).toEqual({
       hideTimeMinutes: 30,
+      seekTimeMinutes: 60,
       geofenceRadiusM: 200,
       gameRadiusM: 3000,
     });
@@ -14,11 +15,13 @@ describe("validateCreateGame", () => {
   it("accepts valid custom values", () => {
     const result = validateCreateGame({
       hideTimeMinutes: 60,
+      seekTimeMinutes: 90,
       geofenceRadiusM: 500,
       gameRadiusM: 5000,
     });
     expect(result).toEqual({
       hideTimeMinutes: 60,
+      seekTimeMinutes: 90,
       geofenceRadiusM: 500,
       gameRadiusM: 5000,
     });

@@ -7,6 +7,7 @@ export interface Game {
   code: string;
   status: GameStatus;
   hideTimeMinutes: number;
+  seekTimeMinutes: number;
   geofenceRadiusM: number;
   gameRadiusM: number;
   startedAt: string | null;
@@ -115,6 +116,14 @@ export interface ServerToClientEvents {
   "game:player_joined": (data: { player: Player }) => void;
   "game:player_left": (data: { playerId: string }) => void;
   "game:phase_change": (data: { status: GameStatus }) => void;
+  "game:role_changed": (data: { playerId: string; role: PlayerRole }) => void;
+  "game:stop_chosen": (data: {
+    playerId: string;
+    stopId: string;
+    stopName: string;
+    geofence: { center: { lat: number; lng: number }; radiusM: number };
+  }) => void;
+  "game:force_choose": (data: { nearbyStops: Pick<Stop, "id" | "name" | "location">[] }) => void;
   "location:seekers": (data: { players: Pick<Player, "id" | "name" | "currentLocation">[] }) => void;
   "location:geofence_warning": (data: { distanceToEdge: number }) => void;
   "chat:message": (data: Message) => void;
@@ -129,6 +138,8 @@ export interface ServerToClientEvents {
 export interface ClientToServerEvents {
   "game:join": (data: { gameCode: string; playerName: string }) => void;
   "game:start": (data: { lat: number; lng: number }) => void;
+  "game:change_role": (data: { role: PlayerRole }) => void;
+  "game:choose_stop": (data: { stopId: string }) => void;
   "location:update": (data: { lat: number; lng: number }) => void;
   "chat:message": (data: { type: MessageType; content: string; metadata?: Record<string, unknown> }) => void;
   "question:ask": (data: { questionId: string; params: Record<string, unknown> }) => void;
