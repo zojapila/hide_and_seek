@@ -91,26 +91,39 @@ export function registerGameHandlers(
   // ── game:start — creator starts the game ──
   socket.on("game:start", async () => {
     const sd = socket.data as SocketData;
-    if (!sd?.gameId) {
-      log.warn(`Socket ${socket.id}: game:start without game context`);
+    if (!sd?.gameId || !sd?.playerId) {
+      log.warn(`Socket ${socket.id}: game:start without game or player context`);
       return;
     }
 
-    // Verify the game is still waiting
-    const gameResult = await query<{ id: string; status: string }>(
-      "SELECT id, status FROM games WHERE id = $1",
+    // Determine creator as first player created for this game
+    const creatorResult = await query<{ id: string }>(
+      "SELECT id FROM players WHERE game_id = $1 ORDER BY created_at ASC LIMIT 1",
       [sd.gameId],
     );
-    if (gameResult.rowCount === 0 || gameResult.rows[0].status !== "waiting") {
-      log.warn(`Socket ${socket.id}: game:start on non-waiting game`);
+    if (creatorResult.rowCount === 0) {
+      log.warn(`Socket ${socket.id}: game:start for game ${sd.gameId} with no players`);
       return;
     }
 
-    // Transition to hiding phase
-    await query(
-      "UPDATE games SET status = 'hiding', started_at = NOW() WHERE id = $1",
+    const creatorId = creatorResult.rows[0].id;
+    if (creatorId !== sd.playerId) {
+      log.warn(
+        `Socket ${socket.id}: unauthorized game:start by player ${sd.playerId} (creator is ${creatorId})`,
+      );
+      return;
+    }
+
+    // Atomically transition to hiding phase only if game is still waiting
+    const updateResult = await query(
+      "UPDATE games SET status = 'hiding', started_at = NOW() WHERE id = $1 AND status = 'waiting'",
       [sd.gameId],
     );
+
+    if (updateResult.rowCount === 0) {
+      log.warn(`Socket ${socket.id}: game:start on non-waiting or already-started game ${sd.gameId}`);
+      return;
+    }
 
     const room = `game:${sd.gameId}`;
     io.to(room).emit("game:phase_change", { status: "hiding" });
@@ -166,32 +179,19 @@ export function registerGameHandlers(
       [lng, lat, sd.playerId],
     );
 
-    // If this is a seeker AND the game is in seeking phase, broadcast position to hiders
+    // If this is a seeker during seeking phase, broadcast their position to hiders
     if (sd.playerRole === "seeker" && status === "seeking") {
-      // Gather all seekers' latest locations for this game
-      const seekers = await query<{
-        id: string;
-        name: string;
-        lat: number;
-        lng: number;
-      }>(
-        `SELECT id, name,
-                ST_Y(current_location::geometry) as lat,
-                ST_X(current_location::geometry) as lng
-         FROM players
-         WHERE game_id = $1 AND role = 'seeker' AND current_location IS NOT NULL`,
-        [sd.gameId],
-      );
-
       const hidersRoom = `game:${sd.gameId}:hiders`;
 
-      // Emit seeker positions only to hiders
+      // Emit only this seeker's updated position
       io.to(hidersRoom).emit("location:seekers", {
-        players: seekers.rows.map((r) => ({
-          id: r.id,
-          name: r.name,
-          currentLocation: { lat: r.lat, lng: r.lng },
-        })),
+        players: [
+          {
+            id: sd.playerId,
+            name: sd.playerName!,
+            currentLocation: { lat, lng },
+          },
+        ],
       });
     }
   });

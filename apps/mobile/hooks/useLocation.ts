@@ -1,4 +1,5 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
+import { AppState } from "react-native";
 import * as Location from "expo-location";
 
 export interface LatLng {
@@ -21,35 +22,42 @@ export function useLocation(): UseLocationResult {
   const [permissionDenied, setPermissionDenied] = useState(false);
   const subRef = useRef<Location.LocationSubscription | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    (async () => {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
-        if (!cancelled) {
-          setPermissionDenied(true);
-          setError("Brak dostępu do lokalizacji. Włącz uprawnienia w ustawieniach.");
-        }
-        return;
+  const startWatching = useCallback(async (cancelled: { current: boolean }) => {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== "granted") {
+      if (!cancelled.current) {
+        setPermissionDenied(true);
+        setError("Brak dostępu do lokalizacji. Włącz uprawnienia w ustawieniach.");
       }
+      return;
+    }
 
-      // Get initial location quickly
-      try {
-        const initial = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
+    // Permission was granted — clear any previous denied state
+    if (!cancelled.current) {
+      setPermissionDenied(false);
+      setError(null);
+    }
+
+    // Already watching — skip
+    if (subRef.current) return;
+
+    // Get initial location quickly
+    try {
+      const initial = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      if (!cancelled.current) {
+        setLocation({
+          latitude: initial.coords.latitude,
+          longitude: initial.coords.longitude,
         });
-        if (!cancelled) {
-          setLocation({
-            latitude: initial.coords.latitude,
-            longitude: initial.coords.longitude,
-          });
-        }
-      } catch {
-        // Non-critical — the watcher will provide the location
       }
+    } catch {
+      // Non-critical — the watcher will provide the location
+    }
 
-      // Start watching
+    // Start watching
+    try {
       subRef.current = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.High,
@@ -57,7 +65,7 @@ export function useLocation(): UseLocationResult {
           distanceInterval: MIN_DISTANCE_M,
         },
         (pos) => {
-          if (!cancelled) {
+          if (!cancelled.current) {
             setLocation({
               latitude: pos.coords.latitude,
               longitude: pos.coords.longitude,
@@ -65,13 +73,35 @@ export function useLocation(): UseLocationResult {
           }
         },
       );
-    })();
+    } catch {
+      if (!cancelled.current) {
+        setPermissionDenied(true);
+        setError(
+          "Nie można śledzić lokalizacji. Sprawdź uprawnienia i ustawienia usług lokalizacyjnych.",
+        );
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const cancelled = { current: false };
+
+    startWatching(cancelled);
+
+    // Re-check permissions when app returns to foreground (after visiting Settings)
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") {
+        startWatching(cancelled);
+      }
+    });
 
     return () => {
-      cancelled = true;
+      cancelled.current = true;
+      subscription.remove();
       subRef.current?.remove();
+      subRef.current = null;
     };
-  }, []);
+  }, [startWatching]);
 
   return { location, error, permissionDenied };
 }

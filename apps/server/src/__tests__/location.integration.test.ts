@@ -161,6 +161,25 @@ describe("game:start", () => {
 
     client.disconnect();
   });
+
+  it("does not allow non-creator to start the game", async () => {
+    const { client: creator, gameCode } = await setupPlayer("hider", "Creator");
+    const { client: joiner } = await setupPlayer("seeker", "Joiner", { gameCode, otherClient: creator });
+
+    // Joiner (non-creator) tries to start
+    joiner.emit("game:start");
+    await new Promise((r) => setTimeout(r, 300));
+
+    // Game should still be waiting
+    const dbResult = await query<{ status: string }>(
+      "SELECT status FROM games WHERE code = $1",
+      [gameCode],
+    );
+    expect(dbResult.rows[0].status).toBe("waiting");
+
+    creator.disconnect();
+    joiner.disconnect();
+  });
 });
 
 describe("location:update", () => {
@@ -263,11 +282,11 @@ describe("location:update", () => {
     seekerClient.disconnect();
   });
 
-  it("does not broadcast seeker locations during hiding phase", async () => {
-    const { gameCode, client: hiderClient } = await setupPlayer("hider", "HiderDuringHide");
-    const { client: seekerClient } = await setupPlayer("seeker", "SeekerDuringHide", { gameCode, otherClient: hiderClient });
+  it("does not broadcast seeker location during hiding phase", async () => {
+    const { gameCode, client: hiderClient } = await setupPlayer("hider", "HiderWatch");
+    const { client: seekerClient } = await setupPlayer("seeker", "SeekerHiding", { gameCode, otherClient: hiderClient });
 
-    // Game is in hiding phase
+    // Set game to hiding (not seeking)
     await pool.query("UPDATE games SET status = 'hiding' WHERE code = $1", [gameCode]);
 
     let received = false;

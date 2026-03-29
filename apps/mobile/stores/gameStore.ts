@@ -49,6 +49,18 @@ export const useGameStore = create<GameState>((set) => ({
   setGameInfo: (info) => set(info),
   setPhase: (phase) => set({ phase }),
   setMyLocation: (loc) => set({ myLocation: loc }),
-  setSeekerLocations: (players) => set({ seekerLocations: players }),
+  setSeekerLocations: (players) =>
+    set((state) => {
+      const updated = [...state.seekerLocations];
+      for (const p of players) {
+        const idx = updated.findIndex((s) => s.id === p.id);
+        if (idx >= 0) {
+          updated[idx] = p;
+        } else {
+          updated.push(p);
+        }
+      }
+      return { seekerLocations: updated };
+    }),
   reset: () => set(initialState),
 }));

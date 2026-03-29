@@ -30,7 +30,6 @@ export default function LobbyScreen() {
   const [players, setPlayers] = useState<Player[]>([]);
   const isCreator = params.isCreator === "1";
   const gameRef = useRef<Game | null>(null);
-  const playersRef = useRef<Player[]>([]);
 
   // Fetch initial game state
   useEffect(() => {
@@ -39,7 +38,6 @@ export default function LobbyScreen() {
         setGame(data);
         setPlayers(data.players);
         gameRef.current = data;
-        playersRef.current = data.players;
       })
       .catch((err) => {
         Alert.alert("Błąd", err instanceof Error ? err.message : "Nie udało się pobrać gry");
@@ -59,18 +57,12 @@ export default function LobbyScreen() {
     socket.on("game:player_joined", ({ player }) => {
       setPlayers((prev) => {
         if (prev.some((p) => p.id === player.id)) return prev;
-        const updated = [...prev, player];
-        playersRef.current = updated;
-        return updated;
+        return [...prev, player];
       });
     });
 
     socket.on("game:player_left", ({ playerId }) => {
-      setPlayers((prev) => {
-        const updated = prev.filter((p) => p.id !== playerId);
-        playersRef.current = updated;
-        return updated;
-      });
+      setPlayers((prev) => prev.filter((p) => p.id !== playerId));
     });
 
     // Listen for game start → navigate to map

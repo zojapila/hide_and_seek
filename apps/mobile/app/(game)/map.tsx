@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from "react";
 import { View, Text, StyleSheet, Pressable, Linking } from "react-native";
-import MapView, { Marker, PROVIDER_DEFAULT } from "react-native-maps";
+import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import { useLocation } from "../../hooks/useLocation";
 import { useGameStore } from "../../stores/gameStore";
 import { getSocket } from "../../lib/socket";
@@ -102,7 +102,7 @@ export default function MapScreen() {
       <MapView
         ref={mapRef}
         style={styles.map}
-        provider={PROVIDER_DEFAULT}
+        provider={PROVIDER_GOOGLE}
         initialRegion={{
           latitude: location.latitude,
           longitude: location.longitude,
