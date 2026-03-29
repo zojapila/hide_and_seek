@@ -2,12 +2,6 @@ name: Deploy Server
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'apps/server/**'
-      - 'packages/shared/**'
-      - 'docker/**'
 
 jobs:
   deploy:
