@@ -1,4 +1,5 @@
 import type { FastifyBaseLogger } from "fastify";
+import { query } from "../db/client";
 
 interface OverpassElement {
   type: string;
@@ -130,4 +131,56 @@ function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): num
   const a =
     Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/**
+ * Pre-fetch and cache stops for a game so they're ready when clients request them.
+ * Called on game:start. If stops are already cached, this is a no-op.
+ */
+export async function prefetchStops(
+  gameId: string,
+  lat: number,
+  lng: number,
+  log: FastifyBaseLogger,
+): Promise<void> {
+  // Check if already cached
+  const cached = await query("SELECT 1 FROM stops WHERE game_id = $1 LIMIT 1", [gameId]);
+  if (cached.rowCount! > 0) return;
+
+  // Get game radius
+  const gameResult = await query<{ game_radius_m: number }>(
+    "SELECT game_radius_m FROM games WHERE id = $1",
+    [gameId],
+  );
+  if (gameResult.rowCount === 0) return;
+  const { game_radius_m } = gameResult.rows[0];
+
+  const raw = await fetchStopsFromOverpass(lat, lng, game_radius_m, log);
+  const deduped = deduplicateStops(raw);
+
+  if (deduped.length === 0) {
+    log.info(`No stops found for game ${gameId}`);
+    return;
+  }
+
+  // Batch insert
+  const values: unknown[] = [];
+  const placeholders: string[] = [];
+  let idx = 1;
+  for (const stop of deduped) {
+    placeholders.push(
+      `($${idx}, $${idx + 1}, $${idx + 2}, ST_SetSRID(ST_MakePoint($${idx + 3}, $${idx + 4}), 4326)::geography)`,
+    );
+    values.push(gameId, stop.osmId, stop.name, stop.lng, stop.lat);
+    idx += 5;
+  }
+
+  await query(
+    `INSERT INTO stops (game_id, osm_id, name, location)
+     VALUES ${placeholders.join(", ")}
+     ON CONFLICT DO NOTHING`,
+    values,
+  );
+
+  log.info(`Pre-cached ${deduped.length} stops for game ${gameId}`);
 }

@@ -194,6 +194,8 @@ Obecnie chcialabym
 
 ### Epic 2.1: Przystanki z Overpass API
 
+**Status:** DONE — branch `feat/2.1-stops` (commit `0f6b7aa`)
+
 **Cel:** Po starcie gry pobieramy przystanki tramwajowe/autobusowe w promieniu gry i wyświetlamy je na mapie.
 
 | # | Story | Opis | DoD |
@@ -206,11 +208,19 @@ Obecnie chcialabym
 | 2.1.6 | Filtrowanie widoku | Opcjonalny toggle "pokaż/ukryj przystanki" na mapie | Domyślnie widoczne, można schować żeby nie zaśmiecały |
 
 **Review & Testy:**
-- [ ] Code review: zapytanie Overpass — sprawdzić czy nie jest zbyt szerokie (timeout), czy escape'uje parametry
-- [ ] Test jednostkowy: dedupl. i centrowanie przystanków (fixture z prawdziwymi danymi OSM)
-- [ ] Test integracyjny: start gry → przystanki pobrane → zapisane w DB → zwracane przez GET
-- [ ] Test manualny: mapa z przystankami w znanej lokalizacji (np. centrum Twojego miasta) — weryfikacja czy są poprawne
-- [ ] Test edge case: brak internetu przy zapytaniu do Overpass → sensowny błąd, brak przystanków w okolicy → info dla gracza
+- [x] Code review: zapytanie Overpass — timeout 25s, parametry enkodowane przez `encodeURIComponent`
+- [x] Test jednostkowy: dedupl. i centrowanie — 7 testów vitest (merging, dystans, case-insensitive, edge cases)
+- [x] Test integracyjny: GET /games/:code/stops — 5 testów (404, 400 bez center_point, cache, multi-stops)
+- [x] Test manualny: centrum Krakowa — 411 deduplikowanych przystanków (z 825 węzłów OSM)
+- [ ] Test edge case: brak internetu przy zapytaniu do Overpass → sensowny błąd
+
+**Szczegóły implementacji:**
+- `apps/server/src/services/overpass.ts` — `fetchStopsFromOverpass()` + `deduplicateStops()` + `normalizeName()` (usuwa sufiksy "01", "02", "A", "B" itp.)
+- `apps/server/src/routes/stops.ts` — lazy cache: jeśli brak w DB → Overpass → dedup → zapis → return
+- `game:start` rozszerzony o `{ lat, lng }` — ustawia `center_point` via PostGIS przy starcie gry
+- Markery żółte (`#f59e0b`) z `Callout` pokazującym nazwę przystanku; toggle 🚏 w lewym dolnym rogu
+- Próg dedupl.: 300m (pokrywa węzły jak Rondo Mogilskie), normalizacja nazw usuwa numery peronów
+- **62 testów vitest (wszystkie przechodzą)**
 
 ---
 
